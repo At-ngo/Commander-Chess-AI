@@ -1,0 +1,268 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1.5rem;
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  width: 100%;
+  max-width: 540px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 1px 1px var(--border-subtle);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.banner {
+  padding: 2rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.bannerRed {
+  background: linear-gradient(180deg, rgba(220, 38, 38, 0.25) 0%, rgba(22, 30, 40, 0) 100%);
+  border-top: 4px solid var(--team-red);
+}
+
+.bannerBlue {
+  background: linear-gradient(180deg, rgba(2, 132, 199, 0.25) 0%, rgba(22, 30, 40, 0) 100%);
+  border-top: 4px solid var(--team-blue);
+}
+
+.bannerDraw {
+  background: linear-gradient(180deg, rgba(250, 204, 21, 0.2) 0%, rgba(22, 30, 40, 0) 100%);
+  border-top: 4px solid var(--gold-primary);
+}
+
+.trophyIcon {
+  font-size: 2.75rem;
+  margin-bottom: 0.5rem;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4));
+}
+
+.winnerTitle {
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  margin: 0 0 0.5rem 0;
+  text-transform: uppercase;
+}
+
+.bannerRed .winnerTitle {
+  color: var(--team-red);
+  text-shadow: 0 0 20px rgba(220, 38, 38, 0.5);
+}
+
+.bannerBlue .winnerTitle {
+  color: var(--team-blue);
+  text-shadow: 0 0 20px rgba(2, 132, 199, 0.5);
+}
+
+.bannerDraw .winnerTitle {
+  color: var(--gold-primary);
+  text-shadow: 0 0 20px rgba(250, 204, 21, 0.4);
+}
+
+.reasonBadge {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+}
+
+.body {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.spotlightCard {
+  background: var(--bg-primary);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.spotlightHeader {
+  display: flex;
+  align-items: center;
+}
+
+.spotlightTag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--team-red);
+}
+
+.spotlightContent {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.avatarWrapper {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+}
+
+.fallenAvatar {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: grayscale(80%) brightness(75%);
+}
+
+.crossedOutBadge {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 900;
+  color: #ef4444;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9);
+}
+
+.spotlightText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.commanderName {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.sideRed {
+  color: var(--team-red);
+}
+
+.sideBlue {
+  color: var(--team-blue);
+}
+
+.commanderFate {
+  font-size: 0.78rem;
+  color: #f4efe6;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.statCard {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.35rem;
+}
+
+.statLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.statValue {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--gold-primary);
+  font-family: var(--font-sans);
+}
+
+.scoreCompare {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.scoreRed {
+  color: var(--team-red);
+}
+
+.scoreVs {
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.scoreBlue {
+  color: var(--team-blue);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem 1.25rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-tertiary);
+}
+
+.actions button {
+  flex: 1;
+  font-size: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  justify-content: center;
+}

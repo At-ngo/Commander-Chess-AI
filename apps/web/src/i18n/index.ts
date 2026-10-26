@@ -53,6 +53,29 @@ export interface Translations {
     drawOffer: string;
     backToHome: string;
     swapTurn: string;
+    timer: string;
+    activeSession: string;
+    btnReviewBoard: string;
+    btnReopenModal: string;
+    confirmNewGameTitle: string;
+    confirmNewGameDesc: string;
+    confirmResignTitle: string;
+    confirmResignDesc: string;
+    confirmDrawTitle: string;
+    confirmDrawDesc: string;
+    confirmYes: string;
+    confirmCancel: string;
+    victoryRed: string;
+    victoryBlue: string;
+    drawMatch: string;
+    reasonCommanderCaptured: string;
+    reasonResignation: string;
+    reasonDraw: string;
+    totalTurns: string;
+    totalMoves: string;
+    finalScore: string;
+    duration: string;
+    capturedCommanderTitle: string;
   };
   pieces: Record<string, string>;
 }
@@ -106,12 +129,35 @@ export const translations: Record<Language, Translations> = {
       score: 'Điểm số',
       status: 'Trạng thái',
       inProgress: 'Đang diễn ra',
-      gameOver: 'Kết thúc ván',
+      gameOver: 'Trận đấu kết thúc',
       newGame: 'Ván mới',
       resign: 'Đầu hàng',
       drawOffer: 'Cầu hòa',
       backToHome: 'Trang chủ',
       swapTurn: 'Đổi lượt',
+      timer: 'Thời gian',
+      activeSession: 'Đang tác chiến',
+      btnReviewBoard: 'Quan sát thế cờ',
+      btnReopenModal: 'Xem kết quả',
+      confirmNewGameTitle: 'Khởi tạo ván mới?',
+      confirmNewGameDesc: 'Trận đánh hiện tại chưa kết thúc. Khởi tạo ván mới sẽ xóa toàn bộ tiến trình và biên bản hiện tại.',
+      confirmResignTitle: 'Xác nhận đầu hàng?',
+      confirmResignDesc: 'Bạn có chắc chắn muốn đầu hàng? Phe đối phương sẽ được tuyên bố chiến thắng ngay lập tức.',
+      confirmDrawTitle: 'Đề nghị hòa chiến?',
+      confirmDrawDesc: 'Bạn có chắc muốn đề nghị hòa? Hai bên sẽ kết thúc trận đấu với kết quả hòa đồng thuận.',
+      confirmYes: 'Xác nhận',
+      confirmCancel: 'Hủy bỏ',
+      victoryRed: 'PHE ĐỎ TOÀN THẮNG!',
+      victoryBlue: 'PHE XANH TOÀN THẮNG!',
+      drawMatch: 'TRẬN ĐẤU BẤT PHÂN THẮNG BẠI',
+      reasonCommanderCaptured: 'Tư lệnh đối phương đã bị bắt giữ (+50 điểm)',
+      reasonResignation: 'Đối phương đã chủ động đầu hàng',
+      reasonDraw: 'Hai bên đồng thuận đình chiến hòa bình',
+      totalTurns: 'Tổng số hiệp',
+      totalMoves: 'Tổng số nước đi',
+      finalScore: 'Điểm số chung cuộc',
+      duration: 'Thời gian tác chiến',
+      capturedCommanderTitle: 'TƯ LỆNH BỊ BẮT GIỮ',
     },
     pieces: {
       COMMANDER: 'Tư lệnh',
@@ -181,6 +227,29 @@ export const translations: Record<Language, Translations> = {
       drawOffer: 'Offer Draw',
       backToHome: 'Home',
       swapTurn: 'Swap Turn',
+      timer: 'Match Time',
+      activeSession: 'Active Session',
+      btnReviewBoard: 'Review Board',
+      btnReopenModal: 'View Result',
+      confirmNewGameTitle: 'Start New Match?',
+      confirmNewGameDesc: 'The current battle is still active. Starting a new game will reset all progress and move history.',
+      confirmResignTitle: 'Confirm Resignation?',
+      confirmResignDesc: 'Are you sure you want to resign? The opposing force will immediately be declared the victor.',
+      confirmDrawTitle: 'Offer Mutual Draw?',
+      confirmDrawDesc: 'Are you sure you want to offer a draw? Both forces will conclude the match in an honorable stalemate.',
+      confirmYes: 'Confirm',
+      confirmCancel: 'Cancel',
+      victoryRed: 'RED FORCE VICTORY!',
+      victoryBlue: 'BLUE FORCE VICTORY!',
+      drawMatch: 'HONORABLE STALEMATE',
+      reasonCommanderCaptured: 'Opposing Commander captured (+50 victory pts)',
+      reasonResignation: 'Opposing force has surrendered',
+      reasonDraw: 'Mutual agreement for peaceful armistice',
+      totalTurns: 'Total Turns',
+      totalMoves: 'Total Moves',
+      finalScore: 'Final Score',
+      duration: 'Combat Duration',
+      capturedCommanderTitle: 'COMMANDER CAPTURED',
     },
     pieces: {
       COMMANDER: 'Commander',

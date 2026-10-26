@@ -5,7 +5,9 @@ import { Board } from './components/Board/Board';
 import { PieceDetail } from './components/PieceDetail/PieceDetail';
 import { MoveHistory } from './components/MoveHistory/MoveHistory';
 import { CapturedPieces } from './components/CapturedPieces/CapturedPieces';
-import { PieceState, Side, LegalAction, MoveRecord } from './types';
+import { GameOverModal } from './components/GameOverModal/GameOverModal';
+import { ConfirmModal } from './components/ConfirmModal/ConfirmModal';
+import { PieceState, Side, LegalAction, MoveRecord, GameStatus, GameResult } from './types';
 import { getInitialPieces } from './utils/initialBoard';
 import { getMockLegalActions, applyMockAction } from './services/mockGameService';
 import { Language, translations } from './i18n';
@@ -26,6 +28,11 @@ export const App: React.FC = () => {
   const [scores, setScores] = useState<{ RED: number; BLUE: number }>({ RED: 0, BLUE: 0 });
   const [moves, setMoves] = useState<MoveRecord[]>([]);
   const [capturedPieces, setCapturedPieces] = useState<PieceState[]>([]);
+  const [status, setStatus] = useState<GameStatus>('IN_PROGRESS');
+  const [gameResult, setGameResult] = useState<GameResult | null>(null);
+  const [isGameOverModalOpen, setIsGameOverModalOpen] = useState<boolean>(false);
+  const [confirmModalType, setConfirmModalType] = useState<'NEW_GAME' | 'RESIGN' | 'DRAW' | null>(null);
+  const [matchSeconds, setMatchSeconds] = useState<number>(0);
 
   const t = translations[lang];
 
@@ -33,15 +40,35 @@ export const App: React.FC = () => {
     localStorage.setItem('commander_chess_lang', lang);
   }, [lang]);
 
+  // Combat Match Timer - runs while game is IN_PROGRESS on the board tab
+  useEffect(() => {
+    if (status !== 'IN_PROGRESS' || activeTab !== 'play') return;
+    const interval = setInterval(() => {
+      setMatchSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status, activeTab]);
+
+  const formattedTime = useMemo(() => {
+    const mins = Math.floor(matchSeconds / 60);
+    const secs = matchSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }, [matchSeconds]);
+
   const selectedPiece = pieces.find((p) => p.piece_id === selectedPieceId) || null;
 
   // Calculate legal actions for currently selected piece of active side
   const legalActions = useMemo(() => {
+    if (status === 'GAME_OVER') return [];
     if (!selectedPiece || selectedPiece.side !== sideToMove) return [];
     return getMockLegalActions(selectedPiece, pieces);
-  }, [selectedPiece, sideToMove, pieces]);
+  }, [status, selectedPiece, sideToMove, pieces]);
 
   const handleSelectPiece = (piece: PieceState) => {
+    if (status === 'GAME_OVER') {
+      setSelectedPieceId(piece.piece_id);
+      return;
+    }
     if (selectedPieceId === piece.piece_id) {
       setSelectedPieceId(null);
     } else {
@@ -50,6 +77,8 @@ export const App: React.FC = () => {
   };
 
   const handleExecuteAction = (action: LegalAction) => {
+    if (status === 'GAME_OVER') return;
+
     const { nextPieces, event, capturedPiece } = applyMockAction(action, pieces);
     setPieces(nextPieces);
 
@@ -57,11 +86,14 @@ export const App: React.FC = () => {
       setCapturedPieces((prev) => [...prev, capturedPiece]);
     }
 
+    const finalRedScore = scores.RED + event.score_delta.RED;
+    const finalBlueScore = scores.BLUE + event.score_delta.BLUE;
+
     if (event.score_delta.RED > 0 || event.score_delta.BLUE > 0) {
-      setScores((prev) => ({
-        RED: prev.RED + event.score_delta.RED,
-        BLUE: prev.BLUE + event.score_delta.BLUE,
-      }));
+      setScores({
+        RED: finalRedScore,
+        BLUE: finalBlueScore,
+      });
     }
 
     const newRecord: MoveRecord = {
@@ -72,10 +104,38 @@ export const App: React.FC = () => {
       captured_piece_type: capturedPiece ? capturedPiece.type : null,
       timestamp: Date.now(),
     };
-    setMoves((prev) => [...prev, newRecord]);
+    const nextMoves = [...moves, newRecord];
+    setMoves(nextMoves);
+
+    // KẾT THÚC TRẬN ĐẤU: Bắt được Tư lệnh đối phương!
+    if (capturedPiece && capturedPiece.type === 'COMMANDER') {
+      const winner: Side = sideToMove;
+      const result: GameResult = {
+        winner,
+        reason: 'COMMANDER_CAPTURED',
+        final_scores: { RED: finalRedScore, BLUE: finalBlueScore },
+        total_turns: Math.ceil(nextMoves.length / 2),
+        total_moves: nextMoves.length,
+        duration_seconds: matchSeconds,
+        captured_commander_side: capturedPiece.side,
+      };
+      setStatus('GAME_OVER');
+      setGameResult(result);
+      setIsGameOverModalOpen(true);
+      setSelectedPieceId(null);
+      return;
+    }
 
     setSelectedPieceId(null);
     setSideToMove((prev) => (prev === 'RED' ? 'BLUE' : 'RED'));
+  };
+
+  const handleRequestNewGame = () => {
+    if (moves.length === 0 || status === 'GAME_OVER') {
+      handleResetBoard();
+    } else {
+      setConfirmModalType('NEW_GAME');
+    }
   };
 
   const handleResetBoard = () => {
@@ -85,6 +145,54 @@ export const App: React.FC = () => {
     setScores({ RED: 0, BLUE: 0 });
     setMoves([]);
     setCapturedPieces([]);
+    setStatus('IN_PROGRESS');
+    setGameResult(null);
+    setIsGameOverModalOpen(false);
+    setConfirmModalType(null);
+    setMatchSeconds(0);
+  };
+
+  const handleRequestResign = () => {
+    if (status === 'GAME_OVER') return;
+    setConfirmModalType('RESIGN');
+  };
+
+  const handleConfirmResign = () => {
+    const winner: Side = sideToMove === 'RED' ? 'BLUE' : 'RED';
+    const result: GameResult = {
+      winner,
+      reason: 'RESIGNATION',
+      final_scores: scores,
+      total_turns: Math.max(1, Math.ceil(moves.length / 2)),
+      total_moves: moves.length,
+      duration_seconds: matchSeconds,
+      captured_commander_side: null,
+    };
+    setStatus('GAME_OVER');
+    setGameResult(result);
+    setConfirmModalType(null);
+    setIsGameOverModalOpen(true);
+  };
+
+  const handleRequestDraw = () => {
+    if (status === 'GAME_OVER') return;
+    setConfirmModalType('DRAW');
+  };
+
+  const handleConfirmDraw = () => {
+    const result: GameResult = {
+      winner: 'DRAW',
+      reason: 'MUTUAL_DRAW',
+      final_scores: scores,
+      total_turns: Math.max(1, Math.ceil(moves.length / 2)),
+      total_moves: moves.length,
+      duration_seconds: matchSeconds,
+      captured_commander_side: null,
+    };
+    setStatus('GAME_OVER');
+    setGameResult(result);
+    setConfirmModalType(null);
+    setIsGameOverModalOpen(true);
   };
 
   return (
@@ -175,8 +283,43 @@ export const App: React.FC = () => {
               <div className={`tactical-panel ${styles.statusCard}`}>
                 <div className={styles.statusHeader}>
                   <span className={styles.statusTitle}>{t.game.status}</span>
-                  <span className="badge">Active Session</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <div className={styles.timerDisplay} title={t.game.timer}>
+                      <span>⏱️</span>
+                      <span>{formattedTime}</span>
+                    </div>
+                    <span
+                      className="badge"
+                      style={
+                        status === 'GAME_OVER'
+                          ? { color: 'var(--gold-primary)', borderColor: 'var(--gold-primary)' }
+                          : {}
+                      }
+                    >
+                      {status === 'GAME_OVER' ? t.game.gameOver : t.game.activeSession}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Game Over Banner with Reopen modal button */}
+                {status === 'GAME_OVER' && (
+                  <div className={styles.gameOverBanner}>
+                    <span className={styles.gameOverText}>
+                      {gameResult?.winner === 'RED'
+                        ? `★ ${t.game.redSide} thắng`
+                        : gameResult?.winner === 'BLUE'
+                        ? `★ ${t.game.blueSide} thắng`
+                        : `🤝 ${t.game.drawMatch}`}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.reopenBtn}
+                      onClick={() => setIsGameOverModalOpen(true)}
+                    >
+                      {t.game.btnReopenModal}
+                    </button>
+                  </div>
+                )}
 
                 {/* Turn Indicator - Neutral dark background with solid faction pip */}
                 <div className={styles.turnIndicator}>
@@ -216,23 +359,46 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Controls */}
+                {/* Primary Controls */}
                 <div className={styles.controls}>
                   <button
                     type="button"
                     className="btn btn-primary"
                     style={{ flex: 1 }}
-                    onClick={handleResetBoard}
+                    onClick={handleRequestNewGame}
                   >
-                    {t.game.newGame}
+                    🔄 {t.game.newGame}
                   </button>
                   <button
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => setSideToMove(sideToMove === 'RED' ? 'BLUE' : 'RED')}
+                    disabled={status === 'GAME_OVER'}
                     title="Chuyển lượt thử nghiệm"
                   >
                     {t.game.swapTurn}
+                  </button>
+                </div>
+
+                {/* Tactical Action Controls (Resign & Draw) */}
+                <div className={styles.controlsSecondary}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleRequestResign}
+                    disabled={status === 'GAME_OVER'}
+                    title={t.game.resign}
+                  >
+                    🏳️ {t.game.resign}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={handleRequestDraw}
+                    disabled={status === 'GAME_OVER'}
+                    title={t.game.drawOffer}
+                  >
+                    🤝 {t.game.drawOffer}
                   </button>
                 </div>
               </div>
@@ -383,6 +549,54 @@ export const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModalType !== null}
+        title={
+          confirmModalType === 'NEW_GAME'
+            ? t.game.confirmNewGameTitle
+            : confirmModalType === 'RESIGN'
+            ? t.game.confirmResignTitle
+            : t.game.confirmDrawTitle
+        }
+        description={
+          confirmModalType === 'NEW_GAME'
+            ? t.game.confirmNewGameDesc
+            : confirmModalType === 'RESIGN'
+            ? t.game.confirmResignDesc
+            : t.game.confirmDrawDesc
+        }
+        confirmLabel={
+          confirmModalType === 'RESIGN'
+            ? t.game.resign
+            : confirmModalType === 'DRAW'
+            ? t.game.drawOffer
+            : t.game.newGame
+        }
+        isDanger={confirmModalType === 'RESIGN' || confirmModalType === 'NEW_GAME'}
+        onConfirm={() => {
+          if (confirmModalType === 'NEW_GAME') {
+            handleResetBoard();
+          } else if (confirmModalType === 'RESIGN') {
+            handleConfirmResign();
+          } else if (confirmModalType === 'DRAW') {
+            handleConfirmDraw();
+          }
+        }}
+        onCancel={() => setConfirmModalType(null)}
+        lang={lang}
+      />
+
+      {/* Game Over Victory / Summary Modal */}
+      <GameOverModal
+        isOpen={isGameOverModalOpen}
+        result={gameResult}
+        moves={moves}
+        lang={lang}
+        onNewGame={handleResetBoard}
+        onClose={() => setIsGameOverModalOpen(false)}
+      />
 
       <footer className={styles.footer}>
         <p>

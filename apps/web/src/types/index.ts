@@ -93,3 +93,13 @@ export type TerminationReason =
   | 'MUTUAL_DRAW'
   | 'MAX_MOVES_EXCEEDED'
   | 'RULE_VIOLATION';
+
+export interface GameResult {
+  winner: Side | 'DRAW';
+  reason: TerminationReason;
+  final_scores: { RED: number; BLUE: number };
+  total_turns: number;
+  total_moves: number;
+  duration_seconds: number;
+  captured_commander_side?: Side | null;
+}
