@@ -55,3 +55,41 @@ export type EventType =
 export type GameStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'GAME_OVER';
 export type TurnPhase = 'NORMAL' | 'STACK_ACTIVE';
 export type GameMode = 'HUMAN_VS_AI' | 'AI_VS_AI' | 'HUMAN_VS_HUMAN';
+
+export interface LegalAction {
+  action_id: string;
+  action_type: ActionType;
+  piece_id: string;
+  from_pos: Position;
+  to_pos: Position;
+  target_piece_id?: string | null;
+  notation: string;
+  description: string;
+}
+
+export interface GameEvent {
+  event_id: string;
+  event_type: EventType;
+  actor_id?: string | null;
+  target_id?: string | null;
+  notation: string;
+  score_delta: { RED: number; BLUE: number };
+  details?: Record<string, any>;
+}
+
+export interface MoveRecord {
+  move_number: number;
+  side: Side;
+  action: LegalAction;
+  notation: string;
+  captured_piece_type?: PieceType | null;
+  timestamp: number;
+}
+
+export type TerminationReason =
+  | 'COMMANDER_CAPTURED'
+  | 'TIMEOUT'
+  | 'RESIGNATION'
+  | 'MUTUAL_DRAW'
+  | 'MAX_MOVES_EXCEEDED'
+  | 'RULE_VIOLATION';

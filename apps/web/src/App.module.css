@@ -11,7 +11,7 @@
 
 .gameLayout {
   display: grid;
-  grid-template-columns: 165px minmax(0, 1fr) 280px;
+  grid-template-columns: 220px minmax(0, 1fr) 280px;
   gap: 1.25rem;
   align-items: start;
   justify-content: center;

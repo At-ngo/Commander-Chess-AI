@@ -21,6 +21,25 @@ export const PIECE_ASSET_CODE: Record<PieceType, string> = {
 };
 
 /**
+ * Official Move Notation Symbols according to docs/MOVE_NOTATION.md (Section 1):
+ * ⋆ (Tư lệnh), L (Tên lửa), S (Sở chỉ huy), T (Xe tăng), K (Máy bay),
+ * B (Bộ binh), H (Hải quân), F (Cao xạ), C (Công binh), D (Dân quân), A (Pháo binh)
+ */
+export const PIECE_NOTATION_SYMBOL: Record<PieceType, string> = {
+  COMMANDER: '⋆',
+  MISSILE: 'L',
+  HEADQUARTERS: 'S',
+  TANK: 'T',
+  AIRCRAFT: 'K',
+  INFANTRY: 'B',
+  NAVY: 'H',
+  ANTI_AIR: 'F',
+  ENGINEER: 'C',
+  MILITIA: 'D',
+  ARTILLERY: 'A',
+};
+
+/**
  * Get the asset URL for a given piece type and side.
  * Files are located in /assets/pieces/{side}/{code}_{side}.png
  */

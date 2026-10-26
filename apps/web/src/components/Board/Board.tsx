@@ -1,5 +1,5 @@
 import React from 'react';
-import { PieceState } from '../../types';
+import { PieceState, LegalAction } from '../../types';
 import { boardToSvgPoint, formatCoordinateNotation, BOARD_GEOMETRY } from '../../utils/coordinates';
 import { getPieceImageUrl, PIECE_VIETNAMESE_NAMES } from '../../utils/assets';
 import styles from './Board.module.css';
@@ -8,6 +8,8 @@ interface BoardProps {
   pieces: PieceState[];
   selectedPieceId: string | null;
   onSelectPiece: (piece: PieceState) => void;
+  legalActions?: LegalAction[];
+  onExecuteAction?: (action: LegalAction) => void;
 }
 
 const PIECE_SIZE = 60; // Kích thước quân cờ (to rõ hơn, tăng từ 54 -> 60)
@@ -17,6 +19,8 @@ export const Board: React.FC<BoardProps> = ({
   pieces,
   selectedPieceId,
   onSelectPiece,
+  legalActions = [],
+  onExecuteAction,
 }) => {
   // Find selected piece coordinates to subtly highlight its axis indicators
   const selectedPiece = pieces.find((p) => p.piece_id === selectedPieceId);
@@ -199,6 +203,91 @@ export const Board: React.FC<BoardProps> = ({
                 >
                   ★
                 </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* Layer 4: Tactical Legal Action Targets Layer (Move dots & Attack reticles) */}
+        {Array.from(
+          legalActions.reduce((map, act) => {
+            const key = `${act.to_pos.x}_${act.to_pos.y}`;
+            if (!map.has(key)) map.set(key, []);
+            map.get(key)!.push(act);
+            return map;
+          }, new Map<string, LegalAction[]>())
+        ).map(([key, acts]) => {
+          const sample = acts[0];
+          const { svgX, svgY } = boardToSvgPoint(sample.to_pos);
+
+          if (acts.length > 1) {
+            // Multiple actions on same square (e.g. Bombing vs Occupying for Aircraft/Artillery)
+            return (
+              <g key={`group-${key}`} transform={`translate(${svgX}, ${svgY})`}>
+                {acts.map((act, idx) => {
+                  const offsetX = idx === 0 ? -16 : 16;
+                  const isStand = act.action_type === 'CAPTURE_STAND';
+                  return (
+                    <g
+                      key={act.action_id}
+                      className={styles.actionTargetGroup}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onExecuteAction?.(act);
+                      }}
+                      transform={`translate(${offsetX}, 0)`}
+                    >
+                      <rect
+                        x={-14}
+                        y={-14}
+                        width={28}
+                        height={28}
+                        rx={6}
+                        className={styles.dualChoiceBadge}
+                      />
+                      <text className={styles.dualChoiceText}>
+                        {isStand ? '💣' : '🎯'}
+                      </text>
+                      <title>{act.description}</title>
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          }
+
+          // Single action on square
+          const action = acts[0];
+          const isCapture =
+            action.action_type === 'CAPTURE_REPLACE' ||
+            action.action_type === 'CAPTURE_STAND';
+
+          return (
+            <g
+              key={action.action_id}
+              className={styles.actionTargetGroup}
+              onClick={(e) => {
+                e.stopPropagation();
+                onExecuteAction?.(action);
+              }}
+              transform={`translate(${svgX}, ${svgY})`}
+            >
+              {/* Stable hit area for target */}
+              <circle cx={0} cy={0} r={HIT_RADIUS} className={styles.actionHitArea} />
+
+              {isCapture ? (
+                // Capture / Bombardment Reticle
+                <circle cx={0} cy={0} r={HIT_RADIUS + 3} className={styles.captureReticle}>
+                  <title>{action.description}</title>
+                </circle>
+              ) : (
+                // Move destination dot & halo
+                <>
+                  <circle cx={0} cy={0} r={14} className={styles.moveHalo} />
+                  <circle cx={0} cy={0} r={6.5} className={styles.moveDot}>
+                    <title>{action.description}</title>
+                  </circle>
+                </>
               )}
             </g>
           );

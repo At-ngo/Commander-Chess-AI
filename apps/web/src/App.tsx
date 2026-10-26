@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Header } from './components/Header/Header';
 import { Home } from './components/Home/Home';
 import { Board } from './components/Board/Board';
 import { PieceDetail } from './components/PieceDetail/PieceDetail';
-import { PieceState, Side } from './types';
+import { MoveHistory } from './components/MoveHistory/MoveHistory';
+import { CapturedPieces } from './components/CapturedPieces/CapturedPieces';
+import { PieceState, Side, LegalAction, MoveRecord } from './types';
 import { getInitialPieces } from './utils/initialBoard';
+import { getMockLegalActions, applyMockAction } from './services/mockGameService';
 import { Language, translations } from './i18n';
 import styles from './App.module.css';
 
@@ -20,13 +23,23 @@ export const App: React.FC = () => {
   const [pieces, setPieces] = useState<PieceState[]>(() => getInitialPieces());
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
   const [sideToMove, setSideToMove] = useState<Side>('RED');
-  const [scores] = useState<{ RED: number; BLUE: number }>({ RED: 0, BLUE: 0 });
+  const [scores, setScores] = useState<{ RED: number; BLUE: number }>({ RED: 0, BLUE: 0 });
+  const [moves, setMoves] = useState<MoveRecord[]>([]);
+  const [capturedPieces, setCapturedPieces] = useState<PieceState[]>([]);
 
   const t = translations[lang];
 
   useEffect(() => {
     localStorage.setItem('commander_chess_lang', lang);
   }, [lang]);
+
+  const selectedPiece = pieces.find((p) => p.piece_id === selectedPieceId) || null;
+
+  // Calculate legal actions for currently selected piece of active side
+  const legalActions = useMemo(() => {
+    if (!selectedPiece || selectedPiece.side !== sideToMove) return [];
+    return getMockLegalActions(selectedPiece, pieces);
+  }, [selectedPiece, sideToMove, pieces]);
 
   const handleSelectPiece = (piece: PieceState) => {
     if (selectedPieceId === piece.piece_id) {
@@ -36,13 +49,43 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleExecuteAction = (action: LegalAction) => {
+    const { nextPieces, event, capturedPiece } = applyMockAction(action, pieces);
+    setPieces(nextPieces);
+
+    if (capturedPiece) {
+      setCapturedPieces((prev) => [...prev, capturedPiece]);
+    }
+
+    if (event.score_delta.RED > 0 || event.score_delta.BLUE > 0) {
+      setScores((prev) => ({
+        RED: prev.RED + event.score_delta.RED,
+        BLUE: prev.BLUE + event.score_delta.BLUE,
+      }));
+    }
+
+    const newRecord: MoveRecord = {
+      move_number: moves.length + 1,
+      side: sideToMove,
+      action,
+      notation: action.notation,
+      captured_piece_type: capturedPiece ? capturedPiece.type : null,
+      timestamp: Date.now(),
+    };
+    setMoves((prev) => [...prev, newRecord]);
+
+    setSelectedPieceId(null);
+    setSideToMove((prev) => (prev === 'RED' ? 'BLUE' : 'RED'));
+  };
+
   const handleResetBoard = () => {
     setPieces(getInitialPieces());
     setSelectedPieceId(null);
     setSideToMove('RED');
+    setScores({ RED: 0, BLUE: 0 });
+    setMoves([]);
+    setCapturedPieces([]);
   };
-
-  const selectedPiece = pieces.find((p) => p.piece_id === selectedPieceId) || null;
 
   return (
     <>
@@ -101,6 +144,9 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
+              {/* Action Log / Move History Panel */}
+              <MoveHistory moves={moves} lang={lang} />
+
               {/* Rules Guide Quick Link */}
               <button
                 type="button"
@@ -118,6 +164,8 @@ export const App: React.FC = () => {
                 pieces={pieces}
                 selectedPieceId={selectedPieceId}
                 onSelectPiece={handleSelectPiece}
+                legalActions={legalActions}
+                onExecuteAction={handleExecuteAction}
               />
             </section>
 
@@ -191,6 +239,9 @@ export const App: React.FC = () => {
 
               {/* Tactical Piece Detail Panel */}
               <PieceDetail piece={selectedPiece} lang={lang} />
+
+              {/* Captured Pieces Tracker */}
+              <CapturedPieces capturedPieces={capturedPieces} lang={lang} />
             </aside>
           </div>
         )}

@@ -108,3 +108,80 @@
   dominant-baseline: central;
   letter-spacing: 0.04em;
 }
+
+/* ==========================================================================
+   Tactical Legal Action Targets (Move Dots & Attack Reticles)
+   ========================================================================== */
+.actionTargetGroup {
+  cursor: pointer;
+}
+
+.actionHitArea {
+  fill: transparent;
+  pointer-events: all;
+}
+
+/* Move Destination: Clean gold dot with subtle halo */
+.moveDot {
+  fill: var(--gold-primary);
+  opacity: 0.85;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8));
+  transition: transform 120ms ease, opacity 120ms ease;
+  pointer-events: none;
+}
+
+.actionTargetGroup:hover .moveDot {
+  opacity: 1;
+  transform: scale(1.3);
+}
+
+.moveHalo {
+  fill: none;
+  stroke: var(--gold-primary);
+  stroke-width: 1.5;
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.actionTargetGroup:hover .moveHalo {
+  opacity: 0.95;
+}
+
+/* Attack / Capture Target: Discrete Red Reticle */
+.captureReticle {
+  fill: none;
+  stroke: var(--team-red);
+  stroke-width: 2.5;
+  stroke-dasharray: 8 4;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9));
+  pointer-events: none;
+  transition: stroke-width 120ms ease;
+}
+
+.actionTargetGroup:hover .captureReticle {
+  stroke-width: 3.5;
+}
+
+/* Dual action choice badges (e.g. Bombing vs Occupying for Aircraft/Artillery) */
+.dualChoiceBadge {
+  fill: #141c26;
+  stroke: var(--team-red);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.9));
+  transition: transform 120ms ease, fill 120ms ease;
+}
+
+.actionTargetGroup:hover .dualChoiceBadge {
+  fill: #241418;
+  stroke-width: 2;
+  transform: scale(1.18);
+}
+
+.dualChoiceText {
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
