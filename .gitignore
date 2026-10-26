@@ -60,3 +60,12 @@ data/local/*
 *.log
 tmp/
 temp/
+
+# Working logs and notes
+docs/COMPLETED.md
+docs/OPEN_QUESTIONS.md
+docs/RESOLVED_QUESTIONS.md
+docs/BUG_REPORT.md
+docs/CHANGE_REQUESTS.md
+docs/BUG_REPORT.md
+docs/CHANGE_REQUESTS.md

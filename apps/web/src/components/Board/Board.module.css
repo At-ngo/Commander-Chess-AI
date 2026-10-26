@@ -1,0 +1,110 @@
+.boardContainer {
+  position: relative;
+  /* Maximize board size to fit comfortably in viewport without top bar obstruction */
+  width: min(740px, 100%, calc((100vh - 90px) * 1024 / 949));
+  max-height: calc(100vh - 90px);
+  aspect-ratio: 1024 / 949;
+  margin: 0 auto;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border-subtle);
+  background: #111721;
+  user-select: none;
+}
+
+.boardSvg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ==========================================================================
+   Piece Element within SVG (Fixed BUG-001: Jitter on hover)
+   - Stable hit area circle guarantees mouse pointer never loses target.
+   - Clean, subtle highlight without neon glow.
+   ========================================================================== */
+.pieceGroup {
+  cursor: pointer;
+}
+
+.pieceHitArea {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.pieceImage {
+  pointer-events: none;
+  transition: filter 120ms ease;
+}
+
+.pieceGroup:hover .pieceImage {
+  filter: brightness(1.10) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
+}
+
+.hoverRing {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1.5;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.pieceGroup:hover .hoverRing {
+  opacity: 1;
+}
+
+/* Selection Highlight - Solid, elegant lacquer/brass marker (no sci-fi rotating neon) */
+.selectionRing {
+  fill: none;
+  stroke: var(--gold-primary);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+  pointer-events: none;
+}
+
+.selectionRingBlue {
+  stroke: #6ba0c7;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+/* ==========================================================================
+   CR-001: Board Coordinates Labels Layer
+   - Positioned in margins outside the playing field (never obscures pieces)
+   - Military pill badges with clear tactical typography
+   ========================================================================== */
+.coordGroup {
+  pointer-events: none;
+  user-select: none;
+}
+
+.coordBadge {
+  fill: #141c26;
+  stroke: #263445;
+  stroke-width: 1;
+}
+
+.coordBadgeActive {
+  fill: #1c2635;
+  stroke: var(--gold-primary);
+  stroke-width: 1.5;
+}
+
+.coordLabel {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 700;
+  fill: #ffffff;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.axisIndicator {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--gold-primary);
+  text-anchor: middle;
+  dominant-baseline: central;
+  letter-spacing: 0.04em;
+}

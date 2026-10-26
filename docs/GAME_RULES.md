@@ -53,7 +53,7 @@
 | Tên lửa phòng không | `MISSILE` | 1 | 20 |
 | Máy bay / Không quân | `AIRCRAFT` | 2 | 40 |
 | Hải quân / Tàu chiến | `NAVY` | 2 | 80 |
-| Sở chỉ huy | `HEADQUARTERS` | 2 | 1010 |
+| Sở chỉ huy | `HEADQUARTERS` | 2 | 100 |
 
 - Quân **Anh hùng** được cộng **10 điểm** vào giá trị của quân đó khi tính điểm bị tiêu diệt.
 - Điểm Hải quân 80 = tên lửa hải đối hải 40 + pháo hạm 30 + cao xạ 10.
