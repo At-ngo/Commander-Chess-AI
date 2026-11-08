@@ -9,13 +9,27 @@
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+*.whl
+pip-wheel-metadata/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
+nosetests.xml
 htmlcov/
 .venv/
 venv/
+env/
+ENV/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*-checkpoint.ipynb
 
 # Node.js
 node_modules/
@@ -23,12 +37,22 @@ dist/
 build/
 coverage/
 .vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # IDE and operating system
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
 
 # Local databases
 *.sqlite
