@@ -68,6 +68,7 @@ export interface Translations {
     victoryRed: string;
     victoryBlue: string;
     drawMatch: string;
+    reasonCheckmate: string;
     reasonCommanderCaptured: string;
     reasonResignation: string;
     reasonDraw: string;
@@ -76,6 +77,14 @@ export interface Translations {
     finalScore: string;
     duration: string;
     capturedCommanderTitle: string;
+    backendOnline: string;
+    backendOffline: string;
+    aiThinking: string;
+    aiMoveBtn: string;
+    modeHumanVsAi: string;
+    modeHumanVsHuman: string;
+    modeLabel: string;
+    aiBotName: string;
   };
   pieces: Record<string, string>;
 }
@@ -150,6 +159,7 @@ export const translations: Record<Language, Translations> = {
       victoryRed: 'PHE ĐỎ TOÀN THẮNG!',
       victoryBlue: 'PHE XANH TOÀN THẮNG!',
       drawMatch: 'TRẬN ĐẤU BẤT PHÂN THẮNG BẠI',
+      reasonCheckmate: 'Chiếu hết Tư lệnh đối phương (+50 điểm)',
       reasonCommanderCaptured: 'Tư lệnh đối phương đã bị bắt giữ (+50 điểm)',
       reasonResignation: 'Đối phương đã chủ động đầu hàng',
       reasonDraw: 'Hai bên đồng thuận đình chiến hòa bình',
@@ -158,6 +168,14 @@ export const translations: Record<Language, Translations> = {
       finalScore: 'Điểm số chung cuộc',
       duration: 'Thời gian tác chiến',
       capturedCommanderTitle: 'TƯ LỆNH BỊ BẮT GIỮ',
+      backendOnline: 'API Trực tuyến (FastAPI)',
+      backendOffline: 'Ngoại tuyến (Local Engine)',
+      aiThinking: '🤖 AI đang suy nghĩ...',
+      aiMoveBtn: '🤖 AI đi hộ',
+      modeHumanVsAi: 'Đấu với AI (Random)',
+      modeHumanVsHuman: 'Hai người chơi',
+      modeLabel: 'Chế độ đối kháng',
+      aiBotName: 'Random AI (Phe Xanh)',
     },
     pieces: {
       COMMANDER: 'Tư lệnh',
@@ -242,6 +260,7 @@ export const translations: Record<Language, Translations> = {
       victoryRed: 'RED FORCE VICTORY!',
       victoryBlue: 'BLUE FORCE VICTORY!',
       drawMatch: 'HONORABLE STALEMATE',
+      reasonCheckmate: 'Checkmate: Opposing Commander has no escape (+50 pts)',
       reasonCommanderCaptured: 'Opposing Commander captured (+50 victory pts)',
       reasonResignation: 'Opposing force has surrendered',
       reasonDraw: 'Mutual agreement for peaceful armistice',
@@ -250,6 +269,14 @@ export const translations: Record<Language, Translations> = {
       finalScore: 'Final Score',
       duration: 'Combat Duration',
       capturedCommanderTitle: 'COMMANDER CAPTURED',
+      backendOnline: 'API Online (FastAPI)',
+      backendOffline: 'Offline (Local Engine)',
+      aiThinking: '🤖 AI is thinking...',
+      aiMoveBtn: '🤖 AI Move',
+      modeHumanVsAi: 'vs Random AI',
+      modeHumanVsHuman: 'Two Players',
+      modeLabel: 'Combat Mode',
+      aiBotName: 'Random AI (Blue Force)',
     },
     pieces: {
       COMMANDER: 'Commander',

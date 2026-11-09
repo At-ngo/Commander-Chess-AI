@@ -49,6 +49,25 @@ export const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, lang }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const formatNotation = (notation?: string) => {
+    if (!notation) return '—';
+    if (notation.includes('> **') && notation.includes('**')) {
+      const parts = notation.split(/(> \*\*[^*]+\*\*)/g);
+      return parts.map((part, idx) => {
+        if (part.startsWith('> **') && part.endsWith('**')) {
+          const sym = part.slice(4, -2);
+          return (
+            <span key={idx} style={{ color: 'var(--gold-primary)', fontWeight: 800 }}>
+              {`> `}★{sym}
+            </span>
+          );
+        }
+        return part;
+      });
+    }
+    return notation;
+  };
+
   return (
     <div className={`tactical-panel ${styles.container}`}>
       <div className={styles.header}>
@@ -85,13 +104,13 @@ export const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, lang }) => {
               <div className={styles.moveCell}>
                 <span className={styles.sideBadgeRed}>Đỏ</span>
                 <span className={styles.moveRed}>
-                  {pair.red ? pair.red.notation : '—'}
+                  {formatNotation(pair.red?.notation)}
                 </span>
               </div>
               <div className={styles.moveCell}>
                 <span className={styles.sideBadgeBlue}>Xanh</span>
                 <span className={styles.moveBlue}>
-                  {pair.blue ? pair.blue.notation : '—'}
+                  {formatNotation(pair.blue?.notation)}
                 </span>
               </div>
             </div>

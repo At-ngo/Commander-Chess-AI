@@ -1,10 +1,11 @@
 import React from 'react';
 import { Language, translations } from '../../i18n';
+import { GameMode } from '../../types';
 import styles from './Home.module.css';
 
 interface HomeProps {
   lang: Language;
-  onNavigate: (tab: string) => void;
+  onNavigate: (tab: string, mode?: GameMode) => void;
 }
 
 export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
@@ -25,7 +26,7 @@ export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
               type="button"
               className="btn btn-primary"
               style={{ padding: '0.8rem 1.6rem', fontSize: '1rem' }}
-              onClick={() => onNavigate('play')}
+              onClick={() => onNavigate('play', 'HUMAN_VS_AI')}
             >
               <span>{t.home.btnPlayNow}</span>
               <span>→</span>
@@ -98,7 +99,7 @@ export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
           {/* Card 1: Play vs AI (Primary Active) */}
           <div
             className={`${styles.modeCard} ${styles.modeCardPrimary}`}
-            onClick={() => onNavigate('play')}
+            onClick={() => onNavigate('play', 'HUMAN_VS_AI')}
             role="button"
             tabIndex={0}
           >
@@ -119,7 +120,7 @@ export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
           {/* Card 2: Human vs Human (Local Hotseat) */}
           <div
             className={styles.modeCard}
-            onClick={() => onNavigate('play')}
+            onClick={() => onNavigate('play', 'HUMAN_VS_HUMAN')}
             role="button"
             tabIndex={0}
           >

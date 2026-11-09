@@ -56,6 +56,13 @@ export type GameStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'GAME_OVER';
 export type TurnPhase = 'NORMAL' | 'STACK_ACTIVE';
 export type GameMode = 'HUMAN_VS_AI' | 'AI_VS_AI' | 'HUMAN_VS_HUMAN';
 
+export interface ActiveCompoundState {
+  originPos: Position;
+  memberIds: string[];
+  movedPieceIds: string[];
+  actionCount: number;
+}
+
 export interface LegalAction {
   action_id: string;
   action_type: ActionType;
@@ -65,6 +72,7 @@ export interface LegalAction {
   target_piece_id?: string | null;
   notation: string;
   description: string;
+  carry_cargo?: boolean;
 }
 
 export interface GameEvent {
@@ -87,6 +95,7 @@ export interface MoveRecord {
 }
 
 export type TerminationReason =
+  | 'CHECKMATE'
   | 'COMMANDER_CAPTURED'
   | 'TIMEOUT'
   | 'RESIGNATION'
@@ -102,4 +111,43 @@ export interface GameResult {
   total_moves: number;
   duration_seconds: number;
   captured_commander_side?: Side | null;
+}
+
+export interface GameStateDTO {
+  game_id: string;
+  mode: GameMode;
+  status: GameStatus;
+  side_to_move: Side;
+  turn_index: number;
+  action_index: number;
+  turn_phase: TurnPhase;
+  state_version: number;
+  scores: { RED: number; BLUE: number };
+  remaining_time_ms: { RED: number; BLUE: number };
+  pieces: PieceState[];
+  legal_actions: LegalAction[];
+  can_end_turn: boolean;
+  last_event?: GameEvent | null;
+  result?: {
+    winner?: string | null;
+    reason?: TerminationReason | null;
+    final_scores: { RED: number; BLUE: number };
+  } | null;
+}
+
+export interface ActionResponseDTO {
+  state_version: number;
+  event: GameEvent;
+  game_state: GameStateDTO;
+}
+
+export interface AgentDTO {
+  agent_id: string;
+  name: string;
+  algorithm: string;
+  version: string;
+  description: string;
+  status: 'READY' | 'EXPERIMENTAL' | 'IN_DEVELOPMENT';
+  supported_sides: Side[];
+  config_schema?: Record<string, any> | null;
 }

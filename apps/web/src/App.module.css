@@ -123,6 +123,32 @@
   color: var(--gold-primary);
 }
 
+.backendBadgeOnline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+}
+
+.backendBadgeOffline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--gold-primary);
+  background: rgba(250, 204, 21, 0.1);
+  border: 1px solid rgba(250, 204, 21, 0.3);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+}
+
 .scoreRow {
   display: flex;
   align-items: center;
@@ -270,6 +296,79 @@
   background: var(--gold-hover);
 }
 
+/* AI Thinking Banner */
+.aiThinkingBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: rgba(2, 132, 199, 0.12);
+  border: 1px solid rgba(2, 132, 199, 0.4);
+  color: var(--team-blue);
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 700;
+  animation: pulseAi 1.5s infinite ease-in-out;
+}
+
+@keyframes pulseAi {
+  0%, 100% {
+    opacity: 1;
+    border-color: rgba(2, 132, 199, 0.4);
+  }
+  50% {
+    opacity: 0.7;
+    border-color: rgba(2, 132, 199, 0.8);
+  }
+}
+
+.aiThinkingSpinner {
+  display: inline-block;
+  animation: spinAi 2s infinite linear;
+}
+
+@keyframes spinAi {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Mode Selector Switch */
+.modeSelectorGroup {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+  background: var(--bg-primary);
+  padding: 0.2rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.modePill {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: center;
+}
+
+.modePill:hover {
+  color: var(--text-primary);
+}
+
+.modePillActive {
+  background: var(--bg-tertiary);
+  color: var(--gold-primary);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
 /* Rules View Styling */
 .rulesContainer {
   display: flex;
@@ -350,6 +449,70 @@
   color: var(--crimson-primary);
   font-weight: bold;
 }
+
+/* ==========================================================================
+   Tactical Rules Table (Bảng tra cứu 11 quân cờ)
+   ========================================================================== */
+.rulesTableWrapper {
+  overflow-x: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.rulesTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  text-align: left;
+}
+
+.rulesTable th {
+  background: #141c26;
+  color: var(--gold-primary);
+  font-family: var(--font-display);
+  font-weight: 700;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.rulesTable td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.rulesTable tr:last-child td {
+  border-bottom: none;
+}
+
+.rulesTable tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.rulesPieceName {
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.rulesSectionTitle {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gold-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 
 /* Dev Placeholder Card */
 .devPanel {

@@ -43,7 +43,9 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
     : t.game.drawMatch;
 
   let reasonDesc = '';
-  if (result.reason === 'COMMANDER_CAPTURED') {
+  if (result.reason === 'CHECKMATE') {
+    reasonDesc = t.game.reasonCheckmate;
+  } else if (result.reason === 'COMMANDER_CAPTURED') {
     reasonDesc = t.game.reasonCommanderCaptured;
   } else if (result.reason === 'RESIGNATION') {
     reasonDesc = t.game.reasonResignation;
