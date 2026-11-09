@@ -17,7 +17,7 @@ from ..models.game import (
     ResignRequest,
     DrawRequest,
 )
-from ..services.engine_adapter import default_engine_adapter
+from ..services.engine_adapter import default_engine_adapter, select_smart_ai_action
 from ..services.game_session_store import session_store
 
 router = APIRouter(prefix="/games", tags=["Games"])
@@ -86,13 +86,18 @@ def end_turn(game_id: str, request: EndTurnRequest) -> GameState:
         )
 
     # Chuyển lượt sang phe đối diện
-    from ..models.enums import Side
+    from ..models.enums import Side, TurnPhase
+    if state.side_to_move == Side.BLUE and state.turn_phase != TurnPhase.STACK_ACTIVE and state.mode.value == "HUMAN_VS_AI":
+        # Đã là lượt của AI trong HUMAN_VS_AI, không lật ngược lại lượt của người chơi
+        return state
+
     next_side = Side.BLUE if state.side_to_move == Side.RED else Side.RED
     next_state = state.model_copy(
         update={
             "side_to_move": next_side,
             "turn_index": state.turn_index + (1 if state.side_to_move == Side.BLUE else 0),
             "action_index": 1,
+            "turn_phase": TurnPhase.NORMAL,
             "state_version": state.state_version + 1,
             "can_end_turn": False,
         }
@@ -112,14 +117,41 @@ def ai_step(game_id: str, request: AiStepRequest) -> ActionResponse:
             detail={"code": "GAME_NOT_FOUND", "message": f"Không tìm thấy ván đấu '{game_id}'"},
         )
 
-    if not state.legal_actions:
+    if state.status.value == "GAME_OVER":
         raise HTTPException(
             status_code=409,
-            detail={"code": "NO_LEGAL_ACTIONS", "message": "Không còn nước đi hợp lệ cho phe hiện tại."},
+            detail={"code": "GAME_ALREADY_OVER", "message": "Ván đấu đã kết thúc, AI không thể đi."},
         )
 
-    # Chọn ngẫu nhiên trong tập nước hợp lệ (Baseline Random Agent)
-    chosen_action = random.choice(state.legal_actions)
+    from ..models.enums import Side, TurnPhase
+    # Trong chế độ HUMAN_VS_AI: AI luôn điều khiển phe BLUE
+    ai_side = Side.BLUE if state.mode.value == "HUMAN_VS_AI" else state.side_to_move
+    if state.mode.value == "HUMAN_VS_AI" and state.side_to_move != Side.BLUE:
+        # Tự động đồng bộ lượt về BLUE cho AI nếu backend bị lệch lượt
+        state = state.model_copy(
+            update={
+                "side_to_move": Side.BLUE,
+                "turn_phase": TurnPhase.NORMAL,
+                "can_end_turn": False,
+            }
+        )
+        state.legal_actions = default_engine_adapter.get_legal_actions(state)
+        session_store.save(state)
+
+    # Lựa chọn nước đi thông minh và an toàn cho AI (chống tự sát Tư lệnh & ưu tiên hóa giải chiếu - DEC-019)
+    try:
+        from agents import RandomAgent
+        agent = RandomAgent(name="RandomAgent")
+        chosen_action = select_smart_ai_action(state, ai_side, rng=agent.rng)
+    except Exception:
+        chosen_action = select_smart_ai_action(state, ai_side)
+
+    if not chosen_action:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "NO_LEGAL_ACTIONS", "message": f"Không còn nước đi hợp lệ cho phe {ai_side.value}."},
+        )
+
     action_req = ActionRequest(
         action_type=chosen_action.action_type,
         piece_id=chosen_action.piece_id,

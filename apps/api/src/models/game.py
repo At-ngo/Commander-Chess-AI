@@ -97,6 +97,10 @@ class ActionRequest(BaseModel):
     from_pos: Optional[Position] = Field(None, description="Tọa độ nguồn (kiểm tra tính nhất quán)")
     target_piece_id: Optional[str] = Field(None, description="Mã quân mục tiêu nếu ăn quân")
     state_version: int = Field(1, description="Phiên bản trạng thái mong đợi")
+    is_compound_action: Optional[bool] = Field(
+        False,
+        description="True nếu đây là nước đi thuộc tổ hợp cõng quân và tổ hợp vẫn còn nước đi tiếp theo (chưa kết thúc lượt)"
+    )
 
 
 class EndTurnRequest(BaseModel):
