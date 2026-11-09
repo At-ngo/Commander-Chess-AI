@@ -28,7 +28,7 @@
 - **Nước sâu:** các đoạn sông khác ngoài ngầm; áp dụng luật vượt sông ở §4.
 - **Bờ biển sát nước:** `x=2` (`PROJECT_DECISION`).
 
-**NEEDS_DECISION — BOARD_DATA:** Cần chuẩn hóa tọa độ chính xác của *các đoạn nối ngầm*, *điểm có thể đặt tàu ở bờ sông/bờ biển*, và *vị trí xuất phát đủ 38 quân* thành dữ liệu máy đọc được. Hình minh họa chưa đủ để khẳng định tất cả các điểm đặt quân. **Không tự sinh bàn khởi đầu chuẩn từ dữ liệu suy đoán.**
+**CONFIRMED — BOARD_DATA:** Đã chuẩn hóa chính thức tại [GAME_RULES_PHAN_1_TOA_DO.md](file:///d:/Commander-Chess-AI/docs/GAME_RULES_PHAN_1_TOA_DO.md) và cài đặt trong `packages/commander_game_engine/initial_setup.py`. Tọa độ đủ 38 quân chuẩn, Đỏ đi trước, hai đường ngầm tại `((5, 5), (6, 5))` và `((5, 7), (6, 7))`, Tàu chiến Xanh thứ hai tại `(8, 2)`.
 
 ### 1.1. Quy ước cho bộ sinh nước
 
@@ -61,186 +61,153 @@
 
 ## 3. Di chuyển và ăn quân theo loại
 
-| Quân | Di chuyển thường | Ăn quân thường | Đặc biệt |
-|---|---|---|---|
-| Tư lệnh | `ORTHOGONAL`, không giới hạn đến khi gặp vật cản | `ORTHOGONAL`, 1 đoạn | Có thể vào Sở chỉ huy; cấm đối mặt trực tiếp với Tư lệnh địch |
-| Bộ binh | `ORTHOGONAL`, 1 đoạn | như di chuyển | Có thể qua sông sâu |
-| Công binh | `ORTHOGONAL`, 1 đoạn | như di chuyển | Hỗ trợ chở vũ khí nặng qua sông |
-| Cao xạ | `ORTHOGONAL`, 1 đoạn | như di chuyển | Tạo vùng phòng không thụ động |
-| Dân quân | `ALL_8`, 1 đoạn | như di chuyển | Có đường chéo ngay từ đầu |
-| Xe tăng | `ORTHOGONAL`, 1–2 đoạn | như di chuyển | Có thể bắn tàu trên biển mà không thế chỗ |
-| Tên lửa | `ORTHOGONAL`, 1–2 đoạn; `DIAGONAL`, 1 đoạn | như di chuyển | Tạo vùng phòng không |
-| Pháo binh | `ALL_8`, 1–3 đoạn | `ALL_8`, 1–3 đoạn | Khi ăn có thể bắn xuyên vật cản; bắn tàu ngoài biển không thế chỗ |
-| Máy bay | `ALL_8`, 1–4 đoạn | `ALL_8`, 1–4 đoạn | Bay/ăn xuyên quân; có ném bom tại chỗ; bị phòng không |
-| Hải quân | `ALL_8`, 1–4 đoạn theo địa hình tàu | Nhiều chế độ, xem §5 | Có pháo hạm, tên lửa hải đối hải, cao xạ |
-| Sở chỉ huy | Không | Không | Công trình cố định, có thể che Tư lệnh |
+| Quân | Di chuyển thường (ô trống) | Tấn công / Ăn quân | Đối tượng có thể tấn công | Tương tác Sông / Biển |
+|---|---|---|---|---|
+| **⋆ Tư lệnh** (`COMMANDER`) | `ORTHOGONAL`, không giới hạn đoạn đến khi gặp vật cản | `ORTHOGONAL`, **1 đoạn** (thế chỗ) | Mọi quân mặt đất và tàu ở bờ. **KHÔNG** đánh được máy bay. | Qua được sông sâu. Không ra biển sâu. |
+| **S Sở chỉ huy** (`HEADQUARTERS`) | Không di chuyển | Không ăn quân | Công trình cố định che chở Tư lệnh. | Cố định trên đất liền. |
+| **B Bộ binh** (`INFANTRY`) | `ORTHOGONAL`, 1 đoạn | `ORTHOGONAL`, 1 đoạn (thế chỗ) | Quân mặt đất, tàu ở sát bờ. **KHÔNG** đánh được máy bay. | **Bơi qua sông sâu được**. Lên được xe tăng, tàu chiến. |
+| **D Dân quân** (`MILITIA`) | `ALL_8` (8 hướng), 1 đoạn | `ALL_8`, 1 đoạn (thế chỗ) | Quân mặt đất, tàu ở sát bờ. **KHÔNG** đánh được máy bay. | Qua được sông sâu. Lên được xe tăng, tàu chiến. |
+| **T Xe tăng** (`TANK`) | `ORTHOGONAL`, 1–2 đoạn (bị cản nếu đoạn 1 có quân) | `ORTHOGONAL`, 1–2 đoạn | Quân mặt đất; bắn tàu trên biển (bắn tại chỗ `_@_`). **KHÔNG** đánh máy bay. | Không tự qua sông sâu (qua ngầm hoặc Công binh chở). Cõng tối đa 2 bộ binh. |
+| **C Công binh** (`ENGINEER`) | `ORTHOGONAL`, 1 đoạn | `ORTHOGONAL`, 1 đoạn (thế chỗ) | Quân mặt đất. **KHÔNG** đánh được máy bay. | Bơi qua sông sâu được. Đứng bờ sông cõng vũ khí nặng qua sông. |
+| **A Pháo binh** (ARTILLERY) | ALL_8, 1–3 đoạn (bị cản) | ALL_8, 1–3 đoạn (**BẮN XUYÊN BẤT KỲ SỐ LƯỢNG QUÂN CẢN**) | Mọi quân mặt đất (bắt buộc ăn thế chỗ @); bắn tàu trên biển (bắn tại chỗ _@_). **KHÔNG** đánh máy bay. | Không tự qua sông sâu (qua ngầm hoặc Công binh chở). Không ra biển. |
+| **F Cao xạ** (ANTI_AIR) | ORTHOGONAL, 1 đoạn | ORTHOGONAL, 1 đoạn (thế chỗ) | **Bắn hạ máy bay** trong tầm và quân bộ. Tạo vành đai lửa bán kính 1 đoạn. | Không tự qua sông sâu. Không ra biển. |
+| **L Tên lửa** (MISSILE) | ORTHOGONAL, 1–2 đoạn; DIAGONAL, 1 đoạn | ORTHOGONAL, 1–2 đoạn; DIAGONAL, 1 đoạn | **Bắn máy bay, tàu chiến, quân mặt đất** (bắn tàu ngoài biển bắn tại chỗ _@_). Tạo vành đai lửa. | Không tự qua sông sâu. **Không thể di chuyển trên biển trống (x<=1)**. |
+| **K Máy bay** (AIRCRAFT) | ALL_8, 1–4 đoạn (**BAY XUYÊN MỌI QUÂN CẢN**) | ALL_8, 1–4 đoạn | • Đánh Máy bay: **Bắt buộc thế chỗ** (@).<br>• Đánh quân đất/biển: **Ném bom tại chỗ** (_@_) hoặc **Oanh tạc thế chỗ** (@). | **Không dừng trên biển trống (x<=1)**, nhưng được bay qua biển để lên Tàu chiến cùng phe. Bị tiêu diệt ngay bởi vành đai lửa phòng không. |
+| **H Hải quân** (NAVY) | ALL_8, 1–4 đoạn (trên sông/biển) | 3 hệ vũ khí tích hợp: diệt hạm 4 đoạn, pháo hạm 3 đoạn, cao xạ hạm 1 đoạn | Tàu chiến địch, quân trên đất/bờ, máy bay. | Hoạt động trên **Biển (x=0..2)** và **Sông (y=5..6)**. Không qua ngầm. **Bị chặn nếu giữa đường vướng đất liền.** |
 
 ### 3.1. Chặn đường và tầm bắn
-
 - Xe tăng, Tư lệnh và các quân đi thẳng nhiều đoạn bị chặn bởi quân nằm giữa, trừ ngoại lệ địa hình/đơn vị đã nêu.
-- **Pháo binh:** được **bắn xuyên quân khi ăn**, nhưng **không được đi xuyên quân khi chỉ di chuyển** (`PROJECT_DECISION`). Khi ăn quân trên đất, phải thế chỗ; bắn tàu ở biển có thể đứng nguyên.
-- **Máy bay:** được **bay xuyên và ăn xuyên quân** trong tầm 4 đoạn, nhưng vẫn phải xét toàn bộ quỹ đạo bay đối với phòng không.
-- Pháo được bắn qua bất kỳ số quân cản dù là 1 quân cản sau lưng quân đó có quân thì pháo vẫn có thể ăn, dù là 2 quân cản sau lưng 2 quân đó thì pháo vẫn ăn được miễn trong tầm ăn quân của pháo.
-
+- **Tàu chiến bị chặn bởi đất liền:** Tàu chiến di chuyển tối đa 4 đoạn (Anh hùng 5 đoạn) trên mặt nước. Nếu bất kỳ giao điểm trung gian nào trên hướng đi là đất liền sâu (!isWater), tàu chiến bị chặn đứng ngay lập tức, không được phép đi xuyên qua đất liền để tới vùng nước phía sau (Ví dụ: Tàu tại (3, 2) đi chéo bị đất liền (4, 3) chặn, không thể tới (5, 4)). **Đặc biệt:** Đường chéo nối giữa Bờ biển (x=2) và Bờ sông (x=3) chạy cắt qua vùng đất liền của 2 phe (giữa (7, 2) và (6, 3) thuộc đất liền bên Xanh; giữa (4, 2) và (5, 3) thuộc đất liền bên Đỏ). Do đó, Tàu chiến tại (7, 2) không thể đi chéo đến (6, 3) hoặc (5, 4); Tàu chiến tại (4, 2) không thể đi chéo đến (5, 3) hoặc (6, 4) vì vướng đất liền.
+- **Pháo binh:** được **bắn xuyên quân khi ăn** (bắn qua 1 hay nhiều quân cản đều được), nhưng **không được đi xuyên quân khi chỉ di chuyển**. Trên đất liền, Pháo binh **chỉ có thể ăn thế chỗ (CAPTURE_REPLACE)**, không được thả bom tại chỗ (CAPTURE_STAND) như máy bay.
+- **Thả bom / Bắn tại chỗ ở quân bộ:** Chỉ DUY NHẤT Máy bay được thả bom tại chỗ đối với quân mặt đất. Quân mặt đất (Xe tăng, Pháo binh, Tên lửa) CHỈ được bắn tại chỗ (CAPTURE_STAND) khi mục tiêu là Tàu chiến địch ngoài biển sâu nơi không thể thế chỗ.
+- **Tên lửa và Máy bay trên biển:** Tên lửa và Máy bay không thể di chuyển/dừng chân trên các ô biển trống (x <= 1). Máy bay được quyền bay qua biển để đáp lên Tàu chiến cùng phe (BOARD) nếu tàu chiến nằm trên đường bay.
+- **Máy bay:** được **bay xuyên và ăn xuyên quân** trong tầm 4 đoạn, nhưng toàn bộ quỹ đạo bay chịu sự khống chế của vành đai lửa phòng không đối phương.
+- Quân bộ và pháo binh khi bắn tàu chiến ngoài biển sâu (x=0..1) thì thực hiện **ăn tại chỗ (CAPTURE_STAND)**, không di chuyển xuống biển.
 ## 4. Sông, biển, bờ và Sở chỉ huy
 
 ### 4.1. Vượt sông
-
-1. Qua **ngầm**: tất cả quân có thể vượt theo nước đi hợp lệ của chính mình.
-2. Qua **nước sâu**: Tư lệnh, Bộ binh, Dân quân, Xe tăng, Công binh có thể qua.
-3. Cao xạ, Pháo binh, Tên lửa **không được tự di chuyển qua nước sâu**; có thể được Công binh hỗ trợ chở qua (xem §8).
-4. Ba loại quân nặng trên **được phép vượt nước sâu bằng nước ăn quân hợp lệ ở bờ đối diện**; không được lợi dụng ngoại lệ này cho nước đi trống.
-5. Máy bay bay qua sông theo quy tắc bay và phòng không; không đứng ở vùng biển như quân thủy.
-
-Công binh đứng sát bờ sông nghĩa là đứng tại trục tung y = 5 bên đỏ hoặc đứng tại trục tung y = 6 đối với bên xanh, các quân nặng có tầm đi tới công binh sẽ có thể lên công binh để công binh chở, ngang, dọc hoặc chéo đều được.
+1. Qua **ngầm** (`(5, 5) - (6, 5)` và `(5, 7) - (6, 7)`): tất cả quân có thể vượt qua theo **đường thẳng** tại cột `x = 5` và `x = 7` (`from_x == to_x && (from_x == 5 || from_x == 7)`).
+2. Qua **nước sâu**: Tư lệnh, Bộ binh, Dân quân, Công binh có thể tự vượt sông.
+3. Xe tăng, Cao xạ, Pháo binh, Tên lửa **không được tự di chuyển vào ô trống qua nước sâu**:
+   - **Cấm đi chéo qua sông sâu:** Tên lửa, Pháo binh, Cao xạ tuyệt đối **không thể đi qua sông sâu theo đường chéo** sang ô trống (kể cả đường chéo có xuất phát hoặc kết thúc tại cột sông ngầm x=5 hay x=7).
+   - Chỉ có thể đi qua sông ngầm theo **đường thẳng** ở cột `x = 5` và `x = 7`.
+4. **Ngoại lệ vượt sông sâu khi ăn quân (DEC-018):** Các loại vũ khí nặng (Tên lửa, Pháo binh, Cao xạ) **được phép vượt sông sâu bằng nước ăn quân thế chỗ (`CAPTURE_REPLACE`)** bên kia sông sâu trong phạm vi di chuyển/ăn quân hợp lệ của mình (cả đường thẳng và đường chéo). Không được áp dụng ngoại lệ này cho nước di chuyển vào ô trống.
+5. **Hỗ trợ vượt sông bằng Công binh:** Quân nặng muốn sang bờ bên kia mà không có quân địch để ăn thế chỗ thì phải nhờ Công binh đứng ở bờ sông (`y = 5` hoặc `y = 6`) cõng qua (`BOARD` / `DEPLOY`).
 
 ### 4.2. Biển, bờ biển và bờ sông
-
-- Quân bộ **không được di chuyển ra biển**. Khi đánh tàu ở vị trí trên biển, quân bộ có thể **ăn tại chỗ**, không phải thế chỗ xuống nước.
-- Nếu tàu địch nằm trên bờ biển hoặc bờ sông ở vị trí hợp lệ để quân bộ đứng, nước ăn phải **thế chỗ**.
-- Hải quân được hoạt động trên biển, dọc bờ biển/bờ sông và vùng nước sông sâu hợp lệ; **không đi vào ngầm** và không đi sâu trong đất liền.
-- Hải quân **không đi xuyên Hải quân** (đồng minh hoặc địch); có thể đi qua quân bộ ở bờ theo mô tả về các lớp hoạt động khác nhau.
-- Quân bộ và Hải quân ở cùng tuyến bờ có thể vượt qua nhau theo điều kiện địa hình, không xem mặc định là hai quân chắn đường nhau.
-- Tư lệnh đứng sát bờ không được coi là an toàn khỏi quy tắc đối mặt chỉ vì có Hải quân trên cùng tuyến.
-
+- Quân bộ **không được di chuyển ra biển sâu (`x=0..1`)**. Khi tấn công tàu ở vị trí trên biển, quân bộ ăn tại chỗ (`_@_`), giữ nguyên vị trí trên đất liền.
+- Hải quân hoạt động trên biển (`x=0..2`) và vùng nước sông (`y=5..6`); không đi vào đường ngầm và không tiến sâu vào đất liền.
+- Hải quân không đi xuyên qua tàu chiến khác (kể cả cùng phe hay đối phương).
 
 ### 4.3. Sở chỉ huy
-
-- Mỗi phe có 2 Sở chỉ huy; không di chuyển, không ăn quân trong trạng thái thường.
-- Tư lệnh có thể trú trong Sở chỉ huy; không được coi việc trú ẩn là miễn nhiễm hoàn toàn.
-- **PROJECT_DECISION:** Khi đối phương tấn công Sở chỉ huy đang che Tư lệnh, **Sở chỉ huy bị phá trước; Tư lệnh còn sống và lộ ra**.
-- Tư lệnh vẫn phải tuân thủ luật không đối mặt trực tiếp với Tư lệnh địch.
-- Nếu Sở chỉ huy là quân cuối cùng bảo vệ Tư lệnh, nó có thể trở thành **Sở chỉ huy Anh hùng** và di chuyển/ăn như Bộ binh Anh hùng; lúc này Tư lệnh **không thể tiếp tục trú trong đó**.
-- Khi quân tấn công Sở chỉ huy có Tư lệnh bên trong: thì không được phép tấn công thế chỗ, chỉ được tấn công ăn tại chỗ sở chỉ huy để tư lệnh lộ ra.
+- Mỗi phe có 2 Sở chỉ huy; công trình cố định, không di chuyển, không ăn quân trong trạng thái thường.
+- Tư lệnh có thể trú ẩn trong Sở chỉ huy; Sở chỉ huy che chở hoàn toàn cho Tư lệnh khỏi hỏa lực đối phương.
+- Khi quân đối phương tấn công Sở chỉ huy đang che Tư lệnh: **bắt buộc tấn công ăn tại chỗ (`CAPTURE_STAND`)**, không được thế chỗ. Sở chỉ huy bị phá hủy, Tư lệnh còn sống và lộ diện tại vị trí đó.
+- Khi một phe chỉ còn **đúng 1 Sở chỉ huy và Tư lệnh** (toàn bộ quân tác chiến khác đã bị tiêu diệt), Sở chỉ huy đó được tự động phong **Sở chỉ huy Anh hùng**, có thể di chuyển và ăn như Bộ binh Anh hùng (8 hướng, tối đa 2 đoạn); lúc này Tư lệnh không thể tiếp tục trú ẩn bên trong. **Lưu ý (DEC-015):** Nếu phe còn lại **2 Sở chỉ huy và Tư lệnh**, cả 2 Sở chỉ huy **tuyệt đối không được phong Anh hùng** và vẫn giữ nguyên chức năng hầm trú ẩn cố định thông thường.
 
 ## 5. Hải quân và ba hệ vũ khí
 
-| Hệ vũ khí | Mục tiêu | Tầm/hướng | Thế chỗ |
+| Hệ vũ khí | Mục tiêu | Tầm / Hướng | Hình thức ăn quân |
 |---|---|---|---|
-| Tên lửa hải đối hải | Chỉ Hải quân địch | `ALL_8`, tối đa 4 đoạn | Có nếu đường hợp lệ; nếu vướng đất liền có thể bắn tại chỗ |
-| Pháo hạm | Quân khác trên đất/bờ | `ALL_8`, tối đa 3 đoạn | Đích sâu trong đất: bắn tại chỗ; đích dọc bờ hợp lệ: thế chỗ |
-| Cao xạ hạm | Máy bay địch | Phòng không 1 đoạn ngang/dọc | Tác dụng phòng thủ, xem §6 |
+| **Tên lửa hải đối hải** | Chỉ Tàu chiến địch | `ALL_8`, tối đa 4 đoạn | Thế chỗ nếu đường biển thông suốt; bắn tại chỗ nếu bị ngăn cách bởi mũi đất |
+| **Pháo hạm** | Quân bộ / bờ sông / bờ biển | `ALL_8`, tối đa 3 đoạn | Đích sâu trong đất: bắn tại chỗ (`_@_`); đích ở mép bờ hợp lệ: thế chỗ (`@`) |
+| **Cao xạ hạm** | Máy bay địch | Phòng không 1 đoạn ngang/dọc | Tạo vành đai lửa bảo vệ tàu và các ô kề cạnh |
 
-- Tàu không đi qua tàu khác.
-- Quy tắc người chơi mô tả: tàu chỉ tấn công Hải quân địch **ở phía trước**, không tấn công tàu địch **ở phía sau**; tàu vẫn có thể bắn quân bộ phía sau tàu địch nếu đường/tầm pháo hạm cho phép.
+- Tàu chiến chỉ tấn công tàu chiến địch ở phía trước, không tấn công tàu địch ở phía sau; tàu vẫn có thể bắn quân bộ phía sau tàu địch nếu đường/tầm pháo hạm cho phép.
+- Tàu chiến có thể cõng tối đa 1 máy bay hoặc 1 xe tăng hoặc 2 bộ binh/dân quân trên hải trình.
 
-## 6. Vành đai lửa và Máy bay
+## 6. Vành đai lửa Phòng không và Máy bay
 
-### 6.1. Vùng phòng không thường
+### 6.1. Phạm vi Vành đai lửa Phòng không
+Vành đai lửa là **vùng cấm bay thụ động tự động kích hoạt** của lực lượng phòng không:
+- **Cao xạ (`ANTI_AIR`):** Bảo vệ bán kính **1 đoạn ngang/dọc** (4 giao điểm kề cạnh).
+- **Tên lửa (`MISSILE`):** Bảo vệ bán kính **1–2 đoạn ngang/dọc và 1 đoạn chéo** (vành đai hỏa lực diện rộng).
+- **Tàu chiến (`NAVY` - Cao xạ hạm):** Bảo vệ bán kính **1 đoạn ngang/dọc** xung quanh tàu.
 
-| Đơn vị | Vùng phòng không |
-|---|---|
-| Cao xạ | Ngang/dọc 1 đoạn |
-| Tên lửa phòng không | Ngang/dọc 1–2 đoạn **và** chéo 1 đoạn |
-| Hải quân | Ngang/dọc 1 đoạn |
+### 6.2. Cơ chế tương tác với Máy bay (`AIRCRAFT`)
+1. **Bay qua vùng cấm bay (`AIR_SHOT_DOWN`):** Máy bay thường bay **vào hoặc xuyên qua** bất kỳ ô nào thuộc vành đai lửa của địch sẽ bị hỏa lực phòng không bắn hạ ngay lập tức, kể cả khi điểm đến cuối cùng nằm ngoài vùng cấm bay.
+2. **Tấn công trong vùng phòng không — Quy tắc 1 đổi 1 (`AIR_EXCHANGE`):** Nếu máy bay tấn công một quân địch nằm bên trong vành đai lửa của đối phương, máy bay tiêu diệt được mục tiêu nhưng **bản thân máy bay cũng bị bắn rơi cùng lúc (1 đổi 1)**.
+3. **Chồng lấn nhiều vùng phòng không:** Nếu mục tiêu nằm trong giao điểm bảo vệ của nhiều quân phòng không, chỉ máy bay tấn công và mục tiêu bị tiêu diệt; các quân phòng không còn lại vẫn an toàn và tiếp tục duy trì vành đai bảo vệ.
+4. **Phòng không áp sát máy bay (`AA_DEFERRED_THREAT`):** Nếu quân phòng không di chuyển tới vị trí làm máy bay địch lọt vào vùng cấm, máy bay **không bị bắn hạ ngay ở lượt đó**. Đến lượt kế tiếp của phe sở hữu máy bay, nếu máy bay không bay thoát khỏi vùng nguy hiểm thì sẽ bị tiêu diệt.
+5. **Hiển thị trực quan trên giao diện Web:** Khi người chơi click chọn quân Máy bay, toàn bộ giao điểm thuộc vành đai lửa phòng không của đối phương sẽ được hiển thị bằng hiệu ứng radar cảnh báo nguy hiểm (`🔥`) trên bàn cờ.
+6. **Ngoại lệ Máy bay Anh hùng:** Máy bay Anh hùng là **máy bay tàng hình**, hoàn toàn miễn nhiễm với vành đai lửa (bay qua không bị bắn rơi, tấn công trong vùng cấm không chịu quy tắc 1 đổi 1).
 
-- Vùng phòng không là **năng lực phòng thủ**, không phải một nước đi tấn công chủ động.
-- Máy bay thường bay **vào hoặc xuyên qua** vùng phòng không của địch sẽ bị tiêu diệt, **kể cả khi điểm kết thúc nằm ngoài vùng** (`PROJECT_DECISION`).
-- Nếu Máy bay tấn công một quân địch nằm trong vùng phòng không của địch, **Máy bay và mục tiêu cùng bị tiêu diệt (1 đổi 1)**.
-- Nếu có nhiều vùng phòng không chồng nhau, **chỉ Máy bay tấn công và mục tiêu bị tiêu diệt**; các quân phòng không còn lại vẫn sống và giữ vùng bảo vệ (`PROJECT_DECISION`).
-- Máy bay được Hải quân chở **không bị vùng phòng không tác động khi còn ở trên tàu**.
-- Máy bay không được kết thúc nước di chuyển ở biển.
+### 6.3. Hai hình thức tấn công của Máy bay
+- **Oanh tạc thế chỗ (`CAPTURE_REPLACE` - `@`):** Máy bay tiêu diệt mục tiêu và bay đến chiếm lĩnh tọa độ mục tiêu. Khi không chiến tiêu diệt Máy bay địch, **bắt buộc phải thế chỗ**.
+- **Ném bom tại chỗ (`CAPTURE_STAND` - `_@_`):** Máy bay tiêu diệt mục tiêu mặt đất/mặt nước hợp lệ ngoài vùng phòng không nhưng **giữ nguyên vị trí ban đầu**. Không được ném bom tại chỗ để trốn tránh quy tắc 1 đổi 1 nếu mục tiêu nằm trong vùng phòng không.
 
-### 6.2. Hai hình thức tấn công của Máy bay
+## 7. Tư lệnh, Quy tắc Cấm đối mặt và Phong Anh hùng
 
-1. **Ăn thế chỗ:** Máy bay đến tọa độ mục tiêu sau khi tiêu diệt quân địch.
-2. **Ném bom tại chỗ:** Máy bay tiêu diệt mục tiêu hợp lệ nhưng **giữ nguyên tọa độ ban đầu**.
+### 7.1. Quy tắc Tối thượng: Cấm Tư lệnh Đối mặt nhau (Lộ mặt Tướng)
+- **Định nghĩa:** Hai Tư lệnh của hai phe **không bao giờ được cùng nằm trên một đường thẳng (cùng hàng ngang hoặc cùng cột dọc)** mà ở giữa **không có bất kỳ quân cờ nào khác che chắn** (bất kể quân phe mình hay phe địch).
+- **Các nước đi bất hợp lệ do vi phạm quy tắc đối mặt:**
+  1. **Nước đi tự sát:** Tư lệnh không được tự di chuyển vào ô mà trên cùng hàng/cột có Tư lệnh địch và không có vật cản ở giữa.
+  2. **Quân cản bị ghim (`Pin`):** Nếu trên hàng/cột giữa hai Tư lệnh chỉ có **duy nhất 1 quân cản**, thì quân cản đó **tuyệt đối không được di chuyển rời khỏi đường thẳng đó** (vì sẽ làm lộ mặt hai Tư lệnh).
+  3. **Ăn quân làm lộ mặt:** Không được ăn quân cản duy nhất giữa hai Tư lệnh nếu nước ăn đó làm trống đường đối mặt (trừ khi chính Tư lệnh thực hiện nước ăn tiêu diệt Tư lệnh đối phương).
+- **Sở chỉ huy che chở:** Khi Tư lệnh đang trú trong Sở chỉ huy, Sở chỉ huy là vật che chắn hợp lệ nên không bị tính là đối mặt. Khi Sở chỉ huy bị phá hủy, nếu lộ ra thế đối mặt thì nước tấn công đó phải thỏa mãn không làm Tư lệnh bên tấn công đối mặt hở.
 
-**PROJECT_DECISION:**
-- Máy bay có thể lựa chọn **ném bom tại chỗ hoặc ăn thế chỗ** khi tấn công mục tiêu đất hợp lệ **ngoài vùng phòng không**.
-- Khi ăn **Máy bay địch**, bắt buộc **thế chỗ**.
-- Không được dùng ném bom tại chỗ để tránh tổn thất nếu mục tiêu nằm trong vùng phòng không: vẫn xử lý **1 đổi 1**.
-- Đường bay khi tấn công vẫn phải xét phòng không; không được chỉ kiểm tra ô đích.
+### 7.1.1. Quy tắc An Toàn Cho Tư Lệnh (Cấm Nước Đi Tự Sát & Ghim Quân - DEC-019)
+- **Cấm nước đi khiến Tư lệnh bị đối phương ăn:** Tư lệnh **tuyệt đối không được di chuyển vào bất kỳ ô cờ nào đang nằm trong tầm tấn công/chiếu của quân địch**. Mọi nước đi tự sát như vậy đều bị hệ thống chặn và loại bỏ khỏi danh sách nước đi hợp lệ (`legal_actions`).
+- **Ghim quân bảo vệ Tư lệnh (Pinning):** Một quân cờ đang chắn đường tấn công của quân địch vào Tư lệnh phe mình thì **tuyệt đối không được di chuyển rời khỏi đường chắn** nếu nước đi đó để lộ Tư lệnh trước hỏa lực của quân địch.
+- **Hóa giải chiếu:** Khi Tư lệnh đang bị chiếu, người chơi bắt buộc phải thực hiện các nước đi hóa giải chiếu (di chuyển Tư lệnh tới ô an toàn, đưa quân ra chắn đường tấn công, ăn quân địch đang chiếu, hoặc đưa Tư lệnh ẩn nấp vào Sở chỉ huy). Mọi nước đi khác không hóa giải được chiếu đều là bất hợp lệ.
 
-### 6.3. Phòng không di chuyển tới gần Máy bay
-
-Quy tắc người chơi bổ sung:
-- Nếu Cao xạ/Tên lửa/Hải quân **di chuyển** tới vị trí khiến Máy bay địch nằm trong vùng phòng không, Máy bay **không bị tiêu diệt ngay ở lượt phòng không vừa đi**.
-- Nếu đến lượt kế tiếp của Máy bay mà nó **không bay khỏi vùng nguy hiểm**, nó bị tiêu diệt; phe phòng không không phải dùng một nước ăn riêng.
-
-### 6.4. Máy bay Anh hùng
-
-- Máy bay Anh hùng là **máy bay tàng hình**: được bay qua vùng phòng không mà không bị bắn hạ, được tấn công Cao xạ/Tên lửa/Hải quân mà không chịu quy tắc 1 đổi 1 do phòng không.
-- Các quy tắc di chuyển, phạm vi, địa hình và ăn quân khác vẫn áp dụng, trừ ngoại lệ Anh hùng đã nêu.
-
-## 7. Tư lệnh, đối mặt và phong Anh hùng
-
-### 7.1. Tư lệnh
-
-- Đi dọc/ngang không giới hạn số đoạn nếu đường không bị chặn; ăn quân dọc/ngang **1 đoạn**.
-- Không đi chéo trong trạng thái thường.
-- **PROJECT_DECISION:** Hành động khiến hai Tư lệnh **đối mặt trực tiếp trên cùng hàng/cột, không có vật chắn hợp lệ** là **bất hợp lệ ngay**; không đợi đối phương thực hiện nước ăn.
-- Khi Tư lệnh được chở bởi phương tiện, có ngoại lệ liên quan tới đi qua tuyến đối mặt, nhưng **không được để lộ Tư lệnh đối mặt trực tiếp sau khi triển khai**.
-
-### 7.2. Phong Anh hùng
-
-- Một quân **chiếu Tư lệnh địch** có thể được phong Anh hùng; **PROJECT_DECISION:** phong **tự động** khi đủ điều kiện.
-- **PROJECT_DECISION:** Khi phe chỉ còn **đúng một quân khác ngoài Tư lệnh** trên toàn bàn (tính cả Sở chỉ huy), quân đó **tự động phong Anh hùng**.
-- Danh hiệu tồn tại **đến khi quân bị tiêu diệt**.
-- Quân Anh hùng được tăng **1 đoạn** tầm di chuyển và ăn; quân chưa có đường chéo sẽ được thêm đường chéo, quân đã có thì vẫn tăng tầm.
-- Ví dụ: Bộ binh Anh hùng đi/ăn `ALL_8` tối đa 2 đoạn; Xe tăng Anh hùng đi/ăn `ALL_8` tối đa 3 đoạn.
-- Sở chỉ huy Anh hùng đi/ăn như **Bộ binh Anh hùng** (8 hướng, tối đa 2 đoạn), không còn là công trình trú ẩn cố định.
-- Máy bay Anh hùng bỏ qua nguy cơ phòng không theo §6.4.
-
-### 7.3. Phòng không Anh hùng
-
-- Cao xạ/Hải quân Anh hùng: vùng cấm bay ngang/dọc **2 đoạn**, chéo **1 đoạn**.
-- Tên lửa Anh hùng: vùng cấm bay ngang/dọc **3 đoạn**, chéo **2 đoạn**, và có **những điểm bổ sung** được mô tả bằng hình dạng đặc biệt.
+### 7.2. Phong Anh hùng và Huy hiệu Sao Vàng
+- **Điều kiện phong Anh hùng:**
+  1. Một quân cờ thực hiện **nước đi chiếu Tư lệnh đối phương** sẽ được tự động phong Anh hùng.
+  2. Quân cuối cùng bảo vệ Tư lệnh (ngoại trừ Sở chỉ huy) được tự động phong Anh hùng. Khi toàn bộ quân tác chiến đã bị tiêu diệt và chỉ còn lại **đúng 1 Sở chỉ huy cùng Tư lệnh**, Sở chỉ huy duy nhất này mới được phong Anh hùng. Nếu còn **2 Sở chỉ huy và Tư lệnh**, cả 2 Sở chỉ huy **không được phong Anh hùng** (DEC-015).
+- **Dấu hiệu nhận biết trên bàn cờ:** Quân được phong Anh hùng sẽ có thêm **ngôi sao vàng nhỏ (`★`) nằm ở góc trên của quân cờ**, sáng rõ và nổi bật.
+- **Quyền năng của quân Anh hùng:**
+  - Tăng thêm **1 đoạn** tầm di chuyển và tầm ăn quân.
+  - Quân chưa có đường chéo (như Bộ binh, Xe tăng) sẽ được bổ sung thêm khả năng đi và ăn 4 hướng chéo.
+    - *Bộ binh Anh hùng:* Đi và ăn 8 hướng, tối đa 2 đoạn.
+    - *Xe tăng Anh hùng:* Đi và ăn 8 hướng, tối đa 3 đoạn.
+  - *Máy bay Anh hùng:* Trở thành máy bay tàng hình, bỏ qua toàn bộ vành đai lửa phòng không đối phương.
+  - *Cao xạ / Hải quân Anh hùng:* Vành đai phòng không mở rộng lên 2 đoạn ngang/dọc và 1 đoạn chéo.
+  - *Tên lửa Anh hùng:* Vành đai phòng không mở rộng lên 3 đoạn ngang/dọc và 2 đoạn chéo.
+  - *Sở chỉ huy Anh hùng:* Di chuyển và ăn quân như Bộ binh Anh hùng (8 hướng, tối đa 2 đoạn), không còn là công trình trú ẩn cố định.
 
 ## 8. Hành quân thần tốc — Cõng quân, tổ hợp và triển khai
 
-### 8.1. Phương tiện và sức chứa
+### 8.1. Phương tiện và sức chứa tối đa
 
-| Phương tiện | Quân được chở trực tiếp | Sức chứa tối đa |
+| Phương tiện vận tải / Che chở | Quân được chở trực tiếp | Sức chứa tối đa |
 |---|---|---:|
-| Xe tăng | Bộ binh, Dân quân, Tư lệnh | 2 |
-| Máy bay | Bộ binh, Dân quân, Tư lệnh, Xe tăng | 2 |
-| Hải quân | Bộ binh, Dân quân, Tư lệnh, Xe tăng, Máy bay | 2 |
-| Công binh | Pháo binh, Cao xạ, Tên lửa | 1 |
+| **Xe tăng (`TANK`)** | Bộ binh, Dân quân, Tư lệnh | **2 quân bộ** |
+| **Không quân (`AIRCRAFT`)** | Bộ binh, Dân quân, Tư lệnh, Xe tăng | **2 quân** (tối đa 1 xe tăng hoặc 2 quân bộ) |
+| **Tàu chiến (`NAVY`)** | Bộ binh, Dân quân, Tư lệnh, Xe tăng, Máy bay | **2 quân** (tối đa 1 máy bay / 1 xe tăng / 2 quân bộ) |
+| **Công binh (`ENGINEER`)** | Pháo binh, Cao xạ, Tên lửa (khi ở bờ sông `y=5` hoặc `y=6`) | **1 vũ khí nặng** (chở qua sông sâu) |
+| **Sở chỉ huy (`HEADQUARTERS`)** | Tư lệnh (trú ẩn, che chở hỏa lực) | **1 Tư lệnh** (không nhận quân khi thành Anh hùng) |
 
-- **PROJECT_DECISION — Q09-E:** Cho phép **cõng lồng nhau**; sức chứa của phương tiện cha tính **tổng số quân con cháu**, không chỉ đếm phương tiện con trực tiếp.
-- Ví dụ: Hải quân chở Máy bay đang chở 1 Bộ binh = **2 quân** được Hải quân vận chuyển, hợp lệ. Hải quân chở Máy bay đang chở 2 Bộ binh = **3 quân**, không hợp lệ.
-- Không có chu trình chở quân; mỗi quân chỉ có tối đa một phương tiện cha.
+- **Cõng lồng nhau:** Được phép cõng lồng nhau (ví dụ Máy bay chở Xe tăng đang chở 1 Bộ binh; Tàu chiến chở Xe tăng đang chở Dân quân), nhưng tổng số quân con cháu bên trong không được vượt quá sức chứa quy đổi của phương tiện gốc.
+- Xe tăng không chở được pháo, không chở được xe tăng khác hay máy bay.
+- Sở chỉ huy là công trình cố định che chở Tư lệnh; khi bị tiêu diệt thì Sở chỉ huy mất nhưng Tư lệnh sống sót và lộ diện tại đó. Khi chỉ còn 1 Sở chỉ huy và Tư lệnh thì Sở chỉ huy được phong Bộ binh Anh hùng và không còn cho Tư lệnh ẩn nấp nữa.
 
-### 8.2. Lên phương tiện
+### 8.2. Quy trình Lên phương tiện & Đón cõng quân (`BOARD` & `PICKUP`)
+- **Hai hình thức cõng quân (DEC-016):**
+  1. **Quân chủ động lên phương tiện:** Quân được chở di chuyển vào tọa độ của phương tiện cùng phe.
+  2. **Phương tiện chủ động đến đón cõng quân:** Phương tiện di chuyển theo tầm đi hợp lệ đến vị trí của quân được cõng để đón quân đó lên ngay tại tọa độ đích.
+- Cả hai hình thức đều tiêu tốn **1 lượt tác chiến** tương tự nhau, kết thúc lượt và chuyển lượt sang đối phương. Phương tiện và quân được chở sẽ bắt đầu các hoạt động tác chiến / tổ hợp từ các lượt tiếp theo.
+- Quân đang được chở được hiển thị huy hiệu số lượng trên phương tiện (`+1`, `+2`), danh sách quân chở và bảng điều khiển tổ hợp khi click chọn.
 
-- **PROJECT_DECISION — Q09-A1:** Lên phương tiện **tốn một lượt**; phương tiện chỉ được di chuyển trong lượt sau.
-- **PROJECT_DECISION — Q09-F3:** Có thể để quân đi tới phương tiện hoặc phương tiện tới đón quân, miễn đường đi, địa hình và sức chứa hợp lệ.
-- Khi Công binh đón quân nặng, áp dụng giới hạn 1 quân.
-
-### 8.3. Triển khai và hành động tổ hợp
-
-**PROJECT_DECISION — Q09-B, C, G:**
-1. Quân được chở **không có thao tác “xuống xe tại chỗ” riêng**. Khi triển khai, nó thực hiện ngay **một nước di chuyển hoặc ăn quân hợp lệ của chính nó**, xuất phát từ tọa độ của tổ hợp.
-2. Một tổ hợp có thể thực hiện **tối đa 3 hành động** trong **cùng một lượt**, với các quân khác nhau của tổ hợp.
-3. Người chơi **tự chọn thứ tự** hành động và có thể **kết thúc lượt sớm**.
-4. Mọi quân triển khai phải xuất phát từ **cùng vị trí tổ hợp ban đầu**. Không được di chuyển phương tiện rồi mới cho quân đang chở tách ra ở vị trí mới trong cùng lượt.
-5. Khi một quân/phương tiện **rời vị trí tổ hợp và mang theo quân khác**, các quân còn ở trên phương tiện đó **đi theo**, không được tiếp tục hành động độc lập trong lượt này.
-6. Không được chọn quân **ngoài tổ hợp** khi lượt hành động tổ hợp chưa kết thúc.
-7. Không được bỏ lại hai quân mà bản thân chúng **không có khả năng tự tạo tổ hợp chở hợp lệ**; trạng thái sau từng hành động phải thỏa quy tắc chở.
-
-**Ví dụ — Xe tăng ở `(5,5)` chở Bộ binh và Dân quân:**
-- Phương án 1: Xe tăng di chuyển trước, mang cả hai quân → kết thúc lượt.
-- Phương án 2: Bộ binh triển khai; Xe tăng di chuyển mang Dân quân → kết thúc lượt.
-- Phương án 3: Bộ binh triển khai; Dân quân triển khai; Xe tăng di chuyển → kết thúc lượt.
-- Phương án 4: Chỉ triển khai Dân quân, Xe tăng vẫn chở Bộ binh ở chỗ cũ → kết thúc lượt.
-- **Không hợp lệ:** Xe tăng đi từ `(5,5)` tới `(7,5)` rồi Bộ binh mới tách từ `(7,5)` trong cùng lượt.
-
+### 8.3. Hành quân & Triển khai tách quân (`DEPLOY`)
+- Khi phương tiện di chuyển, tất cả quân đang ngồi bên trong di chuyển cùng phương tiện theo tọa độ mới.
+- Quân trên phương tiện **không có thao tác xuống xe đứng yên tại chỗ**. Khi triển khai, quân đó thực hiện một **nước đi hoặc nước ăn quân hợp lệ** xuất phát từ vị trí của phương tiện.
+- Một tổ hợp phương tiện - quân chở có thể thực hiện chuỗi hành động phối hợp trong lượt triển khai. Người chơi có quyền chủ động bấm kết thúc lượt (`END_TURN`).
 
 ### 8.4. Phương tiện bị tiêu diệt
-
-- **PROJECT_DECISION — Q09-D1:** Phương tiện bị tiêu diệt → **toàn bộ quân đang được chở, kể cả lồng nhau, bị tiêu diệt**.
-- Điểm cộng cho bên tấn công bằng tổng giá trị từng quân bị loại; cộng thưởng Anh hùng cho quân đủ điều kiện.
-- Nếu trong tổ hợp có Tư lệnh, kiểm tra kết thúc ván ngay khi Tư lệnh bị loại.
+- Nếu Xe tăng hoặc Tàu chiến bị đối phương tiêu diệt, **toàn bộ quân đang ngồi bên trong (kể cả cõng lồng nhau) đều bị tiêu diệt ngay lập tức**.
+- Điểm thưởng cho bên tấn công bằng tổng giá trị điểm của phương tiện cộng với điểm của tất cả các quân bên trong.
+- Nếu trong phương tiện có Tư lệnh, trận đấu lập tức kết thúc với thất bại thuộc về phe có Tư lệnh bị tiêu diệt.
 
 ## 9. Điểm số, thời gian và kết thúc ván
 
 ### 9.1. Chế độ chính: Tổng lực
 
 - Giới hạn **30 phút**.
-- Ván kết thúc ngay khi một bên **tiêu diệt Tư lệnh đối phương**.
-- Bên tiêu diệt Tư lệnh được thưởng thêm **50 điểm**.
-- Nếu hết 30 phút mà không Tư lệnh nào bị tiêu diệt, so **tổng điểm quân đã ăn/tiêu diệt**; bên cao hơn thắng.
+- **Kết thúc ván đấu:**
+  1. **Chiếu hết Tư lệnh đối phương (`CHECKMATE` - DEC-019):** Ván kết thúc ngay lập tức khi Tư lệnh đối phương đang bị chiếu và toàn bộ các quân của đối phương không còn bất kỳ nước đi hợp lệ nào để hóa giải chiếu. Bên chiếu hết giành chiến thắng và được **thưởng thêm 50 điểm** (biên bản gắn dấu `#`).
+  2. **Bắt / Tiêu diệt Tư lệnh đối phương (`COMMANDER_CAPTURED`):** Ván kết thúc ngay khi Tư lệnh đối phương bị tiêu diệt (trực tiếp hoặc cùng phương tiện chở). Bên tiêu diệt Tư lệnh được **thưởng thêm 50 điểm**.
+- Nếu hết 30 phút mà không Tư lệnh nào bị chiếu hết hoặc tiêu diệt, so **tổng điểm quân đã ăn/tiêu diệt**; bên cao hơn thắng.
 - **PROJECT_DECISION:** Hai bên bằng điểm khi hết giờ → **hòa**.
 
 ### 9.2. Các chế độ tham khảo (không thuộc MVP chính)
@@ -313,22 +280,22 @@ Mỗi bản ghi tối thiểu cần: `turn_index`, `action_index`, `side`, `piec
 - `END-01`: Diệt Tư lệnh → kết thúc, cộng 50.
 - `END-02`: Hết giờ, điểm cao hơn thắng; bằng điểm hòa.
 
-## 13. Các quyết định còn cần khóa trước khi tuyên bố engine hoàn chỉnh
+## 13. Bảng tổng hợp trạng thái các quyết định quy tắc (Rules Decisions Status)
 
-| Mã | Câu hỏi chưa chốt | Ảnh hưởng |
-|---|---|---|
-| `BOARD_DATA` | Chính xác vị trí 38 quân, các ngầm và tọa độ bờ/sông | Khởi tạo ván, địa hình |
-| `HQ_SCORE` | Sở chỉ huy có bao nhiêu điểm? | Tính điểm |
-| `HQ_CAPTURE` | Vị trí Tư lệnh sau khi Sở chỉ huy che nó bị phá | Trạng thái hợp lệ |
-| `AA_TIMING` | Máy bay bị vùng phòng không mới bao phủ sẽ bị loại chính xác lúc nào? | Trình tự lượt |
-| `HERO_MISSILE_MASK` | Tập điểm phòng không bổ sung của Tên lửa Anh hùng | Sinh vùng nguy hiểm |
-| `NAVY_FRONT` | Cách xác định “trước/sau” của Hải quân | Nước ăn tàu |
-| `COAST_OCCUPANCY` | Hải quân và quân bộ ở cùng tọa độ bờ biểu diễn thế nào? | Dữ liệu bàn cờ |
-| `ENGINEER_BRIDGE` | Cơ chế Công binh đưa quân nặng qua sông | Sinh nước đi |
-| `CLOCK_MODEL` | Đồng hồ chung hay riêng từng phe? | Kết thúc ván |
-| `STACK_ACTION_COUNT` | Tổ hợp cõng lồng nhau >3 quân giới hạn 3 hành động toàn lượt? | Luật tổ hợp |
+| Mã | Quy tắc | Trạng thái | Nội dung đã chốt & Tài liệu tham chiếu |
+|---|---|:---:|---|
+| `BOARD_DATA` | Vị trí 38 quân, ngầm và bờ | **CONFIRMED** | Chuẩn 38 quân, Đỏ đi trước, ngầm tại x=5,7, Tàu 2 Xanh tại `(8, 2)` (DEC-007, `initial_setup.py`) |
+| `HQ_SCORE` | Điểm Sở chỉ huy | **CONFIRMED** | 100 điểm (`RESOLVED_QUESTIONS.md` Q1) |
+| `HQ_CAPTURE` | Tư lệnh trú trong Sở chỉ huy bị đánh | **CONFIRMED** | Tấn công `CAPTURE_STAND`, Sở chỉ huy bị phá hủy, Tư lệnh sống sót lộ diện (DEC-005, Q9) |
+| `AA_TIMING` | Thời điểm vùng phòng không kích hoạt | **CONFIRMED** | Đe dọa trì hoãn (`AA_DEFERRED_THREAT`), không bắn hạ ngay khi phòng không vừa áp sát |
+| `HERO_MISSILE_MASK` | Vùng phòng không Tên lửa Anh hùng | **CONFIRMED** | 28 điểm gồm 8 điểm dạng kỵ mã (DEC-006, Q6) |
+| `NAVY_FRONT` | Hướng tấn công trước/sau của Hải quân | **CONFIRMED** | Tàu địch phía trước cản tàu địch phía sau; không cản quân bộ phía sau (Q5) |
+| `COAST_OCCUPANCY` | Thế chỗ vs Bắn tại chỗ ở bờ | **CONFIRMED** | Ăn quân ở bờ bắt buộc thế chỗ (`CAPTURE_REPLACE`); bắn đất sâu bắt buộc tại chỗ (`CAPTURE_STAND`) (DEC-008, Q8) |
+| `ENGINEER_BRIDGE` | Công binh hỗ trợ vượt sông | **CONFIRMED** | Công binh đứng tại hàng y=5 (Đỏ) hoặc y=6 (Xanh), quân nặng lên Công binh để chở qua sông (DEC-006) |
+| `CLOCK_MODEL` | Mô hình đồng hồ thi đấu | **CONFIRMED** | 30 phút cho thực nghiệm AI vs AI, không đếm ngược áp lực cho Người vs AI (Q2) |
+| `STACK_ACTION_COUNT` | Giới hạn hành động tổ hợp | **CONFIRMED** | Tối đa 3 hành động trong toàn lượt tổ hợp triển khai (Q20, `rules.py`) |
 
-**Không biến các câu hỏi này thành “luật mặc định” chỉ để code chạy.** Các phần độc lập có thể được triển khai và kiểm thử trước.
+Toàn bộ các quy tắc trên đã được phản ánh đồng bộ vào `packages/commander_game_engine`, `apps/api`, `apps/web` và được xác minh qua 21 unit test tự động.
 
 ---
 

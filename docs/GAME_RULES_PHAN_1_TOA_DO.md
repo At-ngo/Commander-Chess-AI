@@ -57,9 +57,9 @@ Mỗi bên có **19 quân**, tổng cộng **38 quân** trên bàn cờ. Tọa �
 | Bộ binh | `B` | `(4, 2)`, `(4, 10)` | `(7, 2)`, `(7, 10)` |
 | Công binh | `C` | `(4, 3)`, `(4, 9)` | `(7, 3)`, `(7, 9)` |
 | Dân quân | `D` | `(4, 6)` | `(7, 6)` |
-| Tàu chiến | `H` | `(1, 1)`, `(3, 2)` | `(10, 1)`, `(6, 2)` |
+| Tàu chiến | `H` | `(1, 1)`, `(3, 2)` | `(10, 1)`, `(8, 2)` |
 
-**Quan trọng:** Tọa độ Tàu chiến Xanh thứ hai là **`(6, 2)`**, đúng theo tài liệu; không tự ý đối xứng thành `(8, 2)`.
+**Quan trọng:** Tọa độ Tàu chiến Xanh thứ hai là **`(8, 2)`** (trục tung y=8, trục hoành x=2), đối xứng với Tàu chiến Đỏ thứ hai tại `(3, 2)`.
 
 ## 1.4. Dữ liệu khởi tạo tham khảo cho Game Engine
 
