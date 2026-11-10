@@ -64,6 +64,7 @@ class TurnPhase(str, Enum):
 
 class TerminationReason(str, Enum):
     CHECKMATE = "CHECKMATE"                    # Chiếu hết Tư lệnh đối phương (+50 điểm)
+    STALEMATE = "STALEMATE"                    # Hòa cờ bí: hết nước đi hợp lệ nhưng không bị chiếu
     COMMANDER_CAPTURED = "COMMANDER_CAPTURED"  # Tư lệnh bị tiêu diệt (+50 điểm)
     TIMEOUT = "TIMEOUT"                        # Hết thời gian (so điểm số)
     RESIGNATION = "RESIGNATION"                # Một bên đầu hàng

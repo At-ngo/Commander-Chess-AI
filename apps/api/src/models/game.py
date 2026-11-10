@@ -41,6 +41,7 @@ class LegalAction(BaseModel):
     target_piece_id: Optional[str] = Field(None, description="Mục tiêu bị tấn công/ăn nếu có")
     notation: str = Field(..., description="Ký pháp chuẩn theo MOVE_NOTATION.md")
     description: str = Field(..., description="Mô tả hành động dễ hiểu cho giao diện")
+    carry_cargo: bool = Field(True, description="True: mang quân cõng theo; False: để lại quân cõng ở gốc")
 
 
 class GameEvent(BaseModel):
@@ -76,6 +77,9 @@ class GameState(BaseModel):
     pieces: List[PieceState] = Field(..., description="Danh sách trạng thái của 38 quân cờ")
     legal_actions: List[LegalAction] = Field(default_factory=list, description="Danh sách nước đi hợp lệ")
     can_end_turn: bool = Field(False, description="Có thể chủ động kết thúc lượt tổ hợp sớm hay không")
+    compound_origin: Optional[Position] = Field(None, description="Tọa độ gốc của tổ hợp cõng quân đang triển khai")
+    compound_member_ids: List[str] = Field(default_factory=list, description="Các quân thuộc tổ hợp đang triển khai")
+    compound_moved_piece_ids: List[str] = Field(default_factory=list, description="Các quân đã hành động trong tổ hợp hiện tại")
     last_event: Optional[GameEvent] = Field(None, description="Biến cố gần nhất")
     result: Optional[GameResultDTO] = Field(None, description="Kết quả trận đấu nếu đã kết thúc")
 
@@ -100,6 +104,10 @@ class ActionRequest(BaseModel):
     is_compound_action: Optional[bool] = Field(
         False,
         description="True nếu đây là nước đi thuộc tổ hợp cõng quân và tổ hợp vẫn còn nước đi tiếp theo (chưa kết thúc lượt)"
+    )
+    carry_cargo: Optional[bool] = Field(
+        True,
+        description="True nếu phương tiện mang theo quân cõng; False nếu tách lẻ để lại gốc"
     )
 
 

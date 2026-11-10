@@ -85,31 +85,83 @@ def end_turn(game_id: str, request: EndTurnRequest) -> GameState:
             detail={"code": "GAME_NOT_FOUND", "message": f"Không tìm thấy ván đấu '{game_id}'"},
         )
 
-    # Chuyển lượt sang phe đối diện
-    from ..models.enums import Side, TurnPhase
+    from ..models.common import Position
+    from ..models.enums import ActionType, GameStatus, PieceType, Side, TerminationReason, TurnPhase
+    from ..models.game import GameResultDTO
+    from ..services.engine_adapter import is_commander_in_check
+
+    if state.turn_phase == TurnPhase.STACK_ACTIVE:
+        try:
+            end_req = ActionRequest(
+                action_type=ActionType.END_TURN,
+                piece_id="COMPOUND",
+                to_pos=state.compound_origin or Position(x=0, y=0),
+                target_piece_id=None,
+                state_version=state.state_version,
+                is_compound_action=False,
+            )
+            next_state, _ = default_engine_adapter.apply_action(state, end_req)
+            session_store.save(next_state)
+            return next_state
+        except ValueError:
+            pass
+
     if state.side_to_move == Side.BLUE and state.turn_phase != TurnPhase.STACK_ACTIVE and state.mode.value == "HUMAN_VS_AI":
         # Đã là lượt của AI trong HUMAN_VS_AI, không lật ngược lại lượt của người chơi
         return state
 
-    next_side = Side.BLUE if state.side_to_move == Side.RED else Side.RED
+    actor_side = state.side_to_move
+    next_side = Side.BLUE if actor_side == Side.RED else Side.RED
     next_state = state.model_copy(
         update={
             "side_to_move": next_side,
-            "turn_index": state.turn_index + (1 if state.side_to_move == Side.BLUE else 0),
+            "turn_index": state.turn_index + (1 if actor_side == Side.BLUE else 0),
             "action_index": 1,
             "turn_phase": TurnPhase.NORMAL,
             "state_version": state.state_version + 1,
             "can_end_turn": False,
+            "compound_origin": None,
+            "compound_member_ids": [],
+            "compound_moved_piece_ids": [],
         }
     )
     next_state.legal_actions = default_engine_adapter.get_legal_actions(next_state)
+
+    enemy_has_cmd = any(
+        p.is_alive and p.side == next_side and p.type == PieceType.COMMANDER
+        for p in next_state.pieces
+    )
+    if enemy_has_cmd and len(next_state.legal_actions) == 0:
+        scores = dict(next_state.scores)
+        if is_commander_in_check(next_state.pieces, next_side):
+            scores[actor_side.value] = scores.get(actor_side.value, 0) + 50
+            result = GameResultDTO(
+                winner=actor_side.value,
+                reason=TerminationReason.CHECKMATE,
+                final_scores=scores,
+            )
+        else:
+            result = GameResultDTO(
+                winner="DRAW",
+                reason=TerminationReason.STALEMATE,
+                final_scores=scores,
+            )
+        next_state = next_state.model_copy(
+            update={
+                "status": GameStatus.GAME_OVER,
+                "side_to_move": actor_side,
+                "scores": scores,
+                "result": result,
+            }
+        )
+
     session_store.save(next_state)
     return next_state
 
 
 @router.post("/{game_id}/ai-step", response_model=ActionResponse)
 def ai_step(game_id: str, request: AiStepRequest) -> ActionResponse:
-    """Kích hoạt một bước đi của AI từ các nước hợp lệ"""
+    """Kích hoạt một bước đi của AI từ các nước hợp lệ (gồm cả tổ hợp cõng quân)"""
     state = session_store.get(game_id)
     if not state:
         raise HTTPException(
@@ -123,7 +175,7 @@ def ai_step(game_id: str, request: AiStepRequest) -> ActionResponse:
             detail={"code": "GAME_ALREADY_OVER", "message": "Ván đấu đã kết thúc, AI không thể đi."},
         )
 
-    from ..models.enums import Side, TurnPhase
+    from ..models.enums import ActionType, Side, TurnPhase
     # Trong chế độ HUMAN_VS_AI: AI luôn điều khiển phe BLUE
     ai_side = Side.BLUE if state.mode.value == "HUMAN_VS_AI" else state.side_to_move
     if state.mode.value == "HUMAN_VS_AI" and state.side_to_move != Side.BLUE:
@@ -133,12 +185,14 @@ def ai_step(game_id: str, request: AiStepRequest) -> ActionResponse:
                 "side_to_move": Side.BLUE,
                 "turn_phase": TurnPhase.NORMAL,
                 "can_end_turn": False,
+                "compound_origin": None,
+                "compound_member_ids": [],
+                "compound_moved_piece_ids": [],
             }
         )
         state.legal_actions = default_engine_adapter.get_legal_actions(state)
         session_store.save(state)
 
-    # Lựa chọn nước đi thông minh và an toàn cho AI (chống tự sát Tư lệnh & ưu tiên hóa giải chiếu - DEC-019)
     try:
         from agents import RandomAgent
         agent = RandomAgent(name="RandomAgent")
@@ -152,13 +206,26 @@ def ai_step(game_id: str, request: AiStepRequest) -> ActionResponse:
             detail={"code": "NO_LEGAL_ACTIONS", "message": f"Không còn nước đi hợp lệ cho phe {ai_side.value}."},
         )
 
-    action_req = ActionRequest(
-        action_type=chosen_action.action_type,
-        piece_id=chosen_action.piece_id,
-        to_pos=chosen_action.to_pos,
-        target_piece_id=chosen_action.target_piece_id,
-        state_version=state.state_version,
-    )
+    if chosen_action.action_type == ActionType.END_TURN:
+        action_req = ActionRequest(
+            action_type=ActionType.END_TURN,
+            piece_id="COMPOUND",
+            to_pos=chosen_action.to_pos,
+            target_piece_id=None,
+            state_version=state.state_version,
+            carry_cargo=True,
+            is_compound_action=False,
+        )
+    else:
+        action_req = ActionRequest(
+            action_type=chosen_action.action_type,
+            piece_id=chosen_action.piece_id,
+            to_pos=chosen_action.to_pos,
+            target_piece_id=chosen_action.target_piece_id,
+            state_version=state.state_version,
+            carry_cargo=chosen_action.carry_cargo,
+            is_compound_action=(state.turn_phase == TurnPhase.STACK_ACTIVE),
+        )
     next_state, event = default_engine_adapter.apply_action(state, action_req)
     session_store.save(next_state)
     return ActionResponse(

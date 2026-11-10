@@ -375,15 +375,25 @@ class TestRulesIntegration(unittest.TestCase):
         self.assertEqual(evt_atk.event_type, EventType.AIR_EXCHANGE)
         self.assertIn("><", evt_atk.notation)
 
-        # 3. Test bay xuyên qua vùng phòng không đến ô bên ngoài (AIR-01, Q11)
-        # Điểm đến (5, 7) nằm ngoài tầm AA (chỉ bảo vệ 1 đoạn tại 5,6), nhưng đường bay cắt qua (5, 6)
+        # 3. Test bay xuyên qua vùng phòng không đến ô bên ngoài trong tầm bay 4 đoạn (AIR-01, Q11)
+        # Đặt r_air tại (5, 3) bay tới (5, 7) (tầm 4): điểm đến (5, 7) nằm ngoài tầm AA (bảo vệ (5, 6)),
+        # nhưng đường bay cắt qua vùng phòng không (5, 4), (5, 5), (5, 6).
+        fly_through_state = state.model_copy(
+            update={
+                "pieces": [
+                    PieceState(piece_id="r_air", side=Side.RED, type=PieceType.AIRCRAFT, position=Position(x=5, y=3)),
+                    enemy_aa,
+                    enemy_inf_in_aa,
+                ]
+            }
+        )
         fly_through_req = ActionRequest(
             piece_id="r_air",
             action_type=ActionType.MOVE,
             to_pos=Position(x=5, y=7),
             state_version=1,
         )
-        new_state_through, _ = default_engine_adapter.apply_action(state, fly_through_req)
+        new_state_through, _ = default_engine_adapter.apply_action(fly_through_state, fly_through_req)
         actor_through = next(p for p in new_state_through.pieces if p.piece_id == "r_air")
         self.assertFalse(actor_through.is_alive, "Aircraft must be shot down when flying across AA zone")
 
@@ -460,7 +470,7 @@ class TestRulesIntegration(unittest.TestCase):
             piece_id="b_cmd",
             side=Side.BLUE,
             type=PieceType.COMMANDER,
-            position=Position(x=6, y=10),
+            position=Position(x=8, y=10),
         )
         cmd_red = PieceState(
             piece_id="r_cmd",
@@ -541,7 +551,7 @@ class TestRulesIntegration(unittest.TestCase):
             piece_id="b_cmd",
             side=Side.BLUE,
             type=PieceType.COMMANDER,
-            position=Position(x=5, y=10),
+            position=Position(x=7, y=10),
             is_alive=True,
             is_hero=False,
             carrying_piece_ids=[],
@@ -1405,6 +1415,612 @@ class TestRulesIntegration(unittest.TestCase):
             is_square_attacked_by_enemy(next_state.pieces, chosen_action.to_pos.x, chosen_action.to_pos.y, Side.RED),
             f"Ô {chosen_action.to_pos} AI chọn cho Tư lệnh không được là ô bị đối phương ăn!"
         )
+
+    def test_aircraft_flies_over_friendly_and_enemy_obstacles(self):
+        """Máy bay có thể bay qua và tấn công xuyên qua vật cản là quân ta lẫn quân đối phương."""
+        red_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=0, y=0))
+        blue_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=10, y=11))
+        red_air = PieceState(piece_id="r_air", side=Side.RED, type=PieceType.AIRCRAFT, position=Position(x=4, y=1))
+        # Vật cản cùng phe (Pháo tại (4,2), Xe tăng tại (5,2)) và quân địch (Bộ binh tại (4,3), Xe tăng tại (4,5))
+        red_art = PieceState(piece_id="r_art", side=Side.RED, type=PieceType.ARTILLERY, position=Position(x=4, y=2))
+        red_tank = PieceState(piece_id="r_tank", side=Side.RED, type=PieceType.TANK, position=Position(x=5, y=2))
+        blue_inf = PieceState(piece_id="b_inf", side=Side.BLUE, type=PieceType.INFANTRY, position=Position(x=4, y=3))
+        blue_tank = PieceState(piece_id="b_tank", side=Side.BLUE, type=PieceType.TANK, position=Position(x=4, y=5))
+
+        state = GameState(
+            game_id="g_air_passthrough",
+            mode=GameMode.HUMAN_VS_HUMAN,
+            status=GameStatus.IN_PROGRESS,
+            side_to_move=Side.RED,
+            turn_index=1,
+            action_index=1,
+            turn_phase=TurnPhase.NORMAL,
+            state_version=1,
+            scores={"RED": 0, "BLUE": 0},
+            remaining_time_ms={"RED": 1000, "BLUE": 1000},
+            pieces=[red_cmd, blue_cmd, red_air, red_art, red_tank, blue_inf, blue_tank],
+            legal_actions=[],
+            can_end_turn=False,
+            last_event=None,
+            result=None,
+        )
+
+        actions = default_engine_adapter.get_legal_actions(state)
+        air_actions = [a for a in actions if a.piece_id == "r_air"]
+
+        # Bay vượt qua Pháo ta (4,2) & Bộ binh địch (4,3) để đáp tại ô trống (4,4)
+        self.assertTrue(
+            any(a.action_type == ActionType.MOVE and a.to_pos == Position(x=4, y=4) for a in air_actions),
+            "Máy bay phải bay qua quân ta (4,2) và quân địch (4,3) để đáp xuống (4,4)",
+        )
+        # Bay vượt vật cản tấn công Xe tăng địch phía sau tại (4,5)
+        self.assertTrue(
+            any(
+                a.target_piece_id == "b_tank" and a.action_type in (ActionType.CAPTURE_STAND, ActionType.CAPTURE_REPLACE)
+                for a in air_actions
+            ),
+            "Máy bay phải bay qua vật cản để tấn công mục tiêu ở (4,5)",
+        )
+        # Có thể đón Xe tăng ta tại (5,2) và vẫn bay vượt qua (5,2) để đáp tại (6,3)
+        self.assertTrue(
+            any(a.action_type == ActionType.BOARD and a.target_piece_id == "r_tank" for a in air_actions),
+            "Máy bay phải đón được Xe tăng đồng minh tại (5,2)",
+        )
+        self.assertTrue(
+            any(a.action_type == ActionType.MOVE and a.to_pos == Position(x=6, y=3) for a in air_actions),
+            "Máy bay phải bay xuyên qua Xe tăng đồng minh (5,2) để đáp tại (6,3)",
+        )
+
+        # Thực thi nước bay vượt vật cản tới (4,4)
+        next_state, _ = default_engine_adapter.apply_action(
+            state,
+            ActionRequest(
+                action_type=ActionType.MOVE,
+                piece_id="r_air",
+                to_pos=Position(x=4, y=4),
+                state_version=1,
+            ),
+        )
+        air_after = next(p for p in next_state.pieces if p.piece_id == "r_air")
+        self.assertTrue(air_after.is_alive)
+        self.assertEqual(air_after.position, Position(x=4, y=4))
+
+        # Kiểm tra trường hợp bay qua Cao xạ địch: vẫn bị bắn hạ nếu máy bay thường
+        blue_aa = PieceState(piece_id="b_aa", side=Side.BLUE, type=PieceType.ANTI_AIR, position=Position(x=4, y=3))
+        aa_state = state.model_copy(update={"pieces": [red_cmd, blue_cmd, red_air, red_art, blue_aa]})
+        aa_actions = [a for a in default_engine_adapter.get_legal_actions(aa_state) if a.piece_id == "r_air"]
+        self.assertTrue(any(a.action_type == ActionType.MOVE and a.to_pos == Position(x=4, y=5) for a in aa_actions))
+        after_aa_fly, evt_aa = default_engine_adapter.apply_action(
+            aa_state,
+            ActionRequest(action_type=ActionType.MOVE, piece_id="r_air", to_pos=Position(x=4, y=5), state_version=1),
+        )
+        self.assertEqual(evt_aa.event_type, EventType.AIR_SHOT_DOWN)
+        self.assertFalse(next(p for p in after_aa_fly.pieces if p.piece_id == "r_air").is_alive)
+
+    def test_real_combat_two_hqs_no_hero_then_capture_one_hq_promotes_remaining(self):
+        """2 Sở chỉ huy + Tư lệnh: chưa phong Anh hùng; chỉ khi diệt 1 HQ còn duy nhất 1 HQ mới phong Anh hùng."""
+        red_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=5, y=0))
+        red_hq1 = PieceState(piece_id="r_hq1", side=Side.RED, type=PieceType.HEADQUARTERS, position=Position(x=5, y=1))
+        red_hq2 = PieceState(piece_id="r_hq2", side=Side.RED, type=PieceType.HEADQUARTERS, position=Position(x=7, y=5))
+        red_inf = PieceState(piece_id="r_inf", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=3, y=3))
+        blue_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=0, y=11))
+        blue_tank1 = PieceState(piece_id="b_tank1", side=Side.BLUE, type=PieceType.TANK, position=Position(x=3, y=5))
+        blue_tank2 = PieceState(piece_id="b_tank2", side=Side.BLUE, type=PieceType.TANK, position=Position(x=5, y=3))
+
+        state1 = GameState(
+            game_id="g_real_2hq_endgame",
+            mode=GameMode.HUMAN_VS_HUMAN,
+            status=GameStatus.IN_PROGRESS,
+            side_to_move=Side.BLUE,
+            turn_index=1,
+            action_index=1,
+            turn_phase=TurnPhase.NORMAL,
+            state_version=1,
+            scores={"RED": 0, "BLUE": 0},
+            remaining_time_ms={"RED": 1000, "BLUE": 1000},
+            pieces=[red_cmd, red_hq1, red_hq2, red_inf, blue_cmd, blue_tank1, blue_tank2],
+            legal_actions=[],
+            can_end_turn=False,
+            last_event=None,
+            result=None,
+        )
+
+        # Nước 1 (Xanh): Xe tăng 1 diệt Bộ binh Đỏ cuối cùng -> Đỏ còn đúng Tư lệnh + 2 Sở chỉ huy
+        state2, _ = default_engine_adapter.apply_action(
+            state1,
+            ActionRequest(
+                action_type=ActionType.CAPTURE_REPLACE,
+                piece_id="b_tank1",
+                to_pos=Position(x=3, y=3),
+                target_piece_id="r_inf",
+                state_version=1,
+            ),
+        )
+        hq1_s2 = next(p for p in state2.pieces if p.piece_id == "r_hq1")
+        hq2_s2 = next(p for p in state2.pieces if p.piece_id == "r_hq2")
+        self.assertFalse(hq1_s2.is_hero, "Còn 2 Sở chỉ huy + Tư lệnh thì HQ1 KHÔNG được phong Anh hùng")
+        self.assertFalse(hq2_s2.is_hero, "Còn 2 Sở chỉ huy + Tư lệnh thì HQ2 KHÔNG được phong Anh hùng")
+        red_actions_s2 = default_engine_adapter.get_legal_actions(state2)
+        self.assertEqual([a for a in red_actions_s2 if a.piece_id in ("r_hq1", "r_hq2")], [])
+        self.assertTrue(
+            any(a.piece_id == "r_cmd" and a.action_type == ActionType.BOARD and a.target_piece_id == "r_hq1" for a in red_actions_s2),
+            "Khi chưa phong Anh hùng (còn 2 HQ), Tư lệnh vẫn trú ẩn được vào HQ",
+        )
+
+        # Nước 2 (Đỏ): Tư lệnh Đỏ bước sang (4, 0)
+        state3, _ = default_engine_adapter.apply_action(
+            state2,
+            ActionRequest(
+                action_type=ActionType.MOVE,
+                piece_id="r_cmd",
+                to_pos=Position(x=4, y=0),
+                state_version=state2.state_version,
+            ),
+        )
+
+        # Nước 3 (Xanh): Xe tăng 2 trực tiếp ăn HQ1 qua AuthoritativeEngineAdapter (không cần Không quân!)
+        blue_actions_s3 = default_engine_adapter.get_legal_actions(state3)
+        capture_hq1 = next(
+            (a for a in blue_actions_s3 if a.piece_id == "b_tank2" and a.target_piece_id == "r_hq1"),
+            None,
+        )
+        self.assertIsNotNone(capture_hq1, "Quân trên bàn cờ phải có nước ăn Sở chỉ huy hợp lệ qua AuthoritativeEngineAdapter")
+        state4, _ = default_engine_adapter.apply_action(
+            state3,
+            ActionRequest(
+                action_type=capture_hq1.action_type,
+                piece_id="b_tank2",
+                to_pos=capture_hq1.to_pos,
+                target_piece_id="r_hq1",
+                state_version=state3.state_version,
+            ),
+        )
+        hq1_s4 = next(p for p in state4.pieces if p.piece_id == "r_hq1")
+        hq2_s4 = next(p for p in state4.pieces if p.piece_id == "r_hq2")
+        self.assertFalse(hq1_s4.is_alive)
+        self.assertGreaterEqual(state4.scores["BLUE"], 100)
+        self.assertTrue(hq2_s4.is_hero, "Khi chỉ còn 1 Tư lệnh và 1 Sở chỉ huy duy nhất thì HQ2 PHẢI phong Anh hùng")
+
+        # HQ2 Anh hùng có thể đi 8 hướng 1-2 đoạn (bao gồm qua sông sâu chéo từ (7,5) sang (8,6))
+        red_actions_s4 = default_engine_adapter.get_legal_actions(state4)
+        hq2_moves = [a for a in red_actions_s4 if a.piece_id == "r_hq2"]
+        self.assertTrue(
+            any(a.to_pos == Position(x=8, y=6) for a in hq2_moves),
+            "Sở chỉ huy Anh hùng (như Bộ binh Anh hùng) phải vượt sông chéo sang (8,6) được",
+        )
+        state5, _ = default_engine_adapter.apply_action(
+            state4,
+            ActionRequest(
+                action_type=ActionType.MOVE,
+                piece_id="r_hq2",
+                to_pos=Position(x=8, y=6),
+                state_version=state4.state_version,
+            ),
+        )
+        self.assertEqual(next(p for p in state5.pieces if p.piece_id == "r_hq2").position, Position(x=8, y=6))
+
+    def test_sheltered_commander_in_hq_uses_capture_stand_and_detaches_on_hero_hq_move(self):
+        """Phá HQ đang che chở Tư lệnh dùng CAPTURE_STAND (Tư lệnh lộ diện an toàn) và HQ Anh hùng di chuyển không kéo Tư lệnh."""
+        red_cmd = PieceState(
+            piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=5, y=1), carried_by_id="r_hq1"
+        )
+        red_hq1 = PieceState(
+            piece_id="r_hq1",
+            side=Side.RED,
+            type=PieceType.HEADQUARTERS,
+            position=Position(x=5, y=1),
+            carrying_piece_ids=["r_cmd"],
+        )
+        red_hq2 = PieceState(piece_id="r_hq2", side=Side.RED, type=PieceType.HEADQUARTERS, position=Position(x=7, y=1))
+        blue_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=0, y=11))
+        blue_tank = PieceState(piece_id="b_tank", side=Side.BLUE, type=PieceType.TANK, position=Position(x=5, y=3))
+
+        state = GameState(
+            game_id="g_sheltered_hq_capture",
+            mode=GameMode.HUMAN_VS_HUMAN,
+            status=GameStatus.IN_PROGRESS,
+            side_to_move=Side.BLUE,
+            turn_index=1,
+            action_index=1,
+            turn_phase=TurnPhase.NORMAL,
+            state_version=1,
+            scores={"RED": 0, "BLUE": 0},
+            remaining_time_ms={"RED": 1000, "BLUE": 1000},
+            pieces=[red_cmd, red_hq1, red_hq2, blue_cmd, blue_tank],
+            legal_actions=[],
+            can_end_turn=False,
+            last_event=None,
+            result=None,
+        )
+
+        # Blue Tank tấn công HQ1 đang che chở Tư lệnh Đỏ -> bắt buộc CAPTURE_STAND, không chồng lên (5, 1)
+        blue_actions = [a for a in default_engine_adapter.get_legal_actions(state) if a.piece_id == "b_tank" and a.target_piece_id == "r_hq1"]
+        self.assertEqual(len(blue_actions), 1)
+        self.assertEqual(blue_actions[0].action_type, ActionType.CAPTURE_STAND)
+
+        next_state, _ = default_engine_adapter.apply_action(
+            state,
+            ActionRequest(
+                action_type=ActionType.CAPTURE_STAND,
+                piece_id="b_tank",
+                to_pos=Position(x=5, y=1),
+                target_piece_id="r_hq1",
+                state_version=1,
+            ),
+        )
+        self.assertFalse(next(p for p in next_state.pieces if p.piece_id == "r_hq1").is_alive)
+        cmd_after = next(p for p in next_state.pieces if p.piece_id == "r_cmd")
+        tank_after = next(p for p in next_state.pieces if p.piece_id == "b_tank")
+        hq2_after = next(p for p in next_state.pieces if p.piece_id == "r_hq2")
+        self.assertTrue(cmd_after.is_alive)
+        self.assertIsNone(cmd_after.carried_by_id)
+        self.assertEqual(cmd_after.position, Position(x=5, y=1))
+        self.assertEqual(tank_after.position, Position(x=5, y=3))
+        self.assertTrue(hq2_after.is_hero)
+
+        # Kịch bản B: HQ duy nhất được phong Anh hùng trong lúc Tư lệnh đang ở bên trong -> khi HQ đi, Tư lệnh tách ra ở chỗ cũ
+        cmd_in_hero = PieceState(
+            piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=5, y=1), carried_by_id="r_hq_hero"
+        )
+        hq_hero = PieceState(
+            piece_id="r_hq_hero",
+            side=Side.RED,
+            type=PieceType.HEADQUARTERS,
+            position=Position(x=5, y=1),
+            is_hero=True,
+            carrying_piece_ids=["r_cmd"],
+        )
+        hero_state = GameState(
+            game_id="g_hero_hq_detach",
+            mode=GameMode.HUMAN_VS_HUMAN,
+            status=GameStatus.IN_PROGRESS,
+            side_to_move=Side.RED,
+            turn_index=1,
+            action_index=1,
+            turn_phase=TurnPhase.NORMAL,
+            state_version=1,
+            scores={"RED": 0, "BLUE": 0},
+            remaining_time_ms={"RED": 1000, "BLUE": 1000},
+            pieces=[cmd_in_hero, hq_hero, blue_cmd],
+            legal_actions=[],
+            can_end_turn=False,
+            last_event=None,
+            result=None,
+        )
+        # Trong trường hợp HQ Anh hùng chứa Tư lệnh ở (5,1), bị Tư lệnh địch đe dọa không? Không, nhưng Tư lệnh không được che chắn nếu bị chiếu
+        self.assertTrue(
+            is_commander_in_check(
+                [cmd_in_hero, hq_hero, blue_cmd, PieceState(piece_id="b_t", side=Side.BLUE, type=PieceType.TANK, position=Position(x=5, y=3))],
+                Side.RED,
+            ),
+            "Tư lệnh không còn được HQ Anh hùng che chắn khỏi chiếu",
+        )
+        after_hq_move, _ = default_engine_adapter.apply_action(
+            hero_state,
+            ActionRequest(action_type=ActionType.MOVE, piece_id="r_hq_hero", to_pos=Position(x=5, y=2), state_version=1),
+        )
+        moved_hq = next(p for p in after_hq_move.pieces if p.piece_id == "r_hq_hero")
+        left_cmd = next(p for p in after_hq_move.pieces if p.piece_id == "r_cmd")
+        self.assertEqual(moved_hq.position, Position(x=5, y=2))
+        self.assertEqual(moved_hq.carrying_piece_ids, [])
+        self.assertEqual(left_cmd.position, Position(x=5, y=1))
+        self.assertIsNone(left_cmd.carried_by_id)
+
+    def test_authoritative_initial_state_piece_ids_match_frontend(self):
+        """ID 38 quân cờ khởi tạo từ AuthoritativeEngineAdapter khớp 100% với Frontend (anti_air)."""
+        state = default_engine_adapter.create_initial_state("g_init_ids", GameMode.HUMAN_VS_AI)
+        ids = {p.piece_id for p in state.pieces}
+        self.assertEqual(len(ids), 38)
+        self.assertIn("red_anti_air_1", ids)
+        self.assertIn("red_anti_air_2", ids)
+        self.assertIn("blue_anti_air_1", ids)
+        self.assertIn("blue_anti_air_2", ids)
+        self.assertFalse(any("_anti_aircraft_" in pid for pid in ids))
+
+
+class TestConfirmedRulesDec020(unittest.TestCase):
+    """Kiểm thử tích hợp bộ luật DEC-020 qua AuthoritativeEngineAdapter."""
+
+    def _state(
+        self,
+        pieces,
+        side_to_move=Side.RED,
+        turn_phase=TurnPhase.NORMAL,
+        compound_origin=None,
+        compound_member_ids=None,
+        compound_moved_piece_ids=None,
+    ):
+        # Đồng bộ Position và carrying_piece_ids 2 chiều cho các quân test
+        by_id = {p.piece_id: p for p in pieces}
+        synced = []
+        for p in pieces:
+            cargo = [other.piece_id for other in pieces if other.is_alive and other.carried_by_id == p.piece_id]
+            pos = p.position
+            if p.carried_by_id and p.carried_by_id in by_id:
+                cur = p
+                visited = set()
+                while cur.carried_by_id and cur.carried_by_id in by_id and cur.piece_id not in visited:
+                    visited.add(cur.piece_id)
+                    cur = by_id[cur.carried_by_id]
+                pos = cur.position
+            synced.append(p.model_copy(update={"position": pos, "carrying_piece_ids": cargo}))
+
+        return GameState(
+            game_id="test_dec020",
+            mode=GameMode.HUMAN_VS_HUMAN,
+            status=GameStatus.IN_PROGRESS,
+            side_to_move=side_to_move,
+            turn_index=1,
+            action_index=1,
+            turn_phase=turn_phase,
+            state_version=1,
+            scores={"RED": 0, "BLUE": 0},
+            remaining_time_ms={"RED": 1000, "BLUE": 1000},
+            pieces=synced,
+            legal_actions=[],
+            can_end_turn=(turn_phase == TurnPhase.STACK_ACTIVE),
+            compound_origin=compound_origin,
+            compound_member_ids=compound_member_ids or [],
+            compound_moved_piece_ids=compound_moved_piece_ids or [],
+            last_event=None,
+            result=None,
+        )
+
+    def test_carried_enemy_deploy_blocks_commander_and_checkmate_bonus(self):
+        # Đỏ Tank tại (4,9) cõng Dân quân (tấn công chéo 1 ô tới (5,10) mà Tank không ăn chéo được)
+        r_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=8, y=0))
+        r_tank = PieceState(piece_id="r_tank", side=Side.RED, type=PieceType.TANK, position=Position(x=4, y=9))
+        r_mil = PieceState(
+            piece_id="r_mil",
+            side=Side.RED,
+            type=PieceType.MILITIA,
+            position=Position(x=4, y=9),
+            carried_by_id="r_tank",
+        )
+        # Xanh Commander tại (5,11): không bị chiếu tại (5,11), nhưng bước lên (5,10) bị r_mil trong r_tank triển khai ăn!
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=5, y=11))
+
+        state_blue = self._state([r_cmd, r_tank, r_mil, b_cmd], side_to_move=Side.BLUE)
+        blue_actions = default_engine_adapter.get_legal_actions(state_blue)
+        self.assertFalse(
+            any(a.piece_id == "b_cmd" and a.to_pos == Position(x=5, y=10) for a in blue_actions),
+            "Tư lệnh Xanh không được bước vào ô bị quân cõng trong xe tăng Đỏ triển khai ăn",
+        )
+
+        # Chiếu hết +50 điểm: đặt Tư lệnh Xanh ở góc (x=10, y=11), khóa hết lối thoát (x=9,y=10), (x=8,y=11), (x=10,y=9)
+        # và Pháo Đỏ di chuyển (x=8,y=8) -> (x=8,y=9) chiếu chéo xuyên qua (9,10) vào (10,11)
+        b_cmd_corner = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=10, y=11))
+        r_aa1 = PieceState(piece_id="r_aa1", side=Side.RED, type=PieceType.ANTI_AIR, position=Position(x=8, y=11))
+        r_aa2 = PieceState(piece_id="r_aa2", side=Side.RED, type=PieceType.ANTI_AIR, position=Position(x=10, y=9))
+        r_inf_block = PieceState(piece_id="r_inf_block", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=9, y=10))
+        r_art = PieceState(piece_id="r_art", side=Side.RED, type=PieceType.ARTILLERY, position=Position(x=8, y=8))
+        r_cmd_safe = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=5, y=0))
+        state_mate = self._state([r_cmd_safe, b_cmd_corner, r_aa1, r_aa2, r_inf_block, r_art], side_to_move=Side.RED)
+        next_state, _ = default_engine_adapter.apply_action(
+            state_mate,
+            ActionRequest(action_type=ActionType.MOVE, piece_id="r_art", to_pos=Position(x=8, y=9), state_version=1),
+        )
+        self.assertEqual(next_state.status, GameStatus.GAME_OVER)
+        self.assertIsNotNone(next_state.result)
+        self.assertEqual(next_state.result.winner, "RED")
+        self.assertEqual(next_state.result.reason, TerminationReason.CHECKMATE)
+        self.assertGreaterEqual(next_state.result.final_scores["RED"], 50)
+
+    def test_stalemate_draw_no_bonus(self):
+        # Xanh Commander tại góc (x=10, y=11) không bị chiếu; r_inf đi (9,9)->(9,10) khóa hết đường thoát còn lại
+        r_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=5, y=0))
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=10, y=11))
+        r_aa1 = PieceState(piece_id="r_aa1", side=Side.RED, type=PieceType.ANTI_AIR, position=Position(x=8, y=11))
+        r_aa2 = PieceState(piece_id="r_aa2", side=Side.RED, type=PieceType.ANTI_AIR, position=Position(x=10, y=9))
+        r_inf = PieceState(piece_id="r_inf", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=9, y=9))
+
+        state = self._state([r_cmd, b_cmd, r_aa1, r_aa2, r_inf], side_to_move=Side.RED)
+        next_state, _ = default_engine_adapter.apply_action(
+            state,
+            ActionRequest(action_type=ActionType.MOVE, piece_id="r_inf", to_pos=Position(x=9, y=10), state_version=1),
+        )
+        self.assertEqual(next_state.status, GameStatus.GAME_OVER)
+        self.assertIsNotNone(next_state.result)
+        self.assertEqual(next_state.result.winner, "DRAW")
+        self.assertEqual(next_state.result.reason, TerminationReason.STALEMATE)
+        self.assertEqual(next_state.result.final_scores["RED"], 0)
+        self.assertEqual(next_state.result.final_scores["BLUE"], 0)
+
+    def test_missile_pierce_capture_vs_blocked_move(self):
+        r_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=6, y=0))
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=9, y=11))
+        r_mis = PieceState(piece_id="r_mis", side=Side.RED, type=PieceType.MISSILE, position=Position(x=5, y=3))
+        r_block_v = PieceState(piece_id="r_block_v", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=5, y=4))
+        b_target = PieceState(piece_id="b_target", side=Side.BLUE, type=PieceType.TANK, position=Position(x=5, y=5))
+        r_block_h = PieceState(piece_id="r_block_h", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=6, y=3))
+
+        state = self._state([r_cmd, b_cmd, r_mis, r_block_v, b_target, r_block_h], side_to_move=Side.RED)
+        actions = [a for a in default_engine_adapter.get_legal_actions(state) if a.piece_id == "r_mis"]
+
+        self.assertTrue(
+            any(a.action_type == ActionType.CAPTURE_REPLACE and a.to_pos == Position(x=5, y=5) for a in actions),
+            "Tên lửa được phép ăn xuyên vật cản tới (5,5)",
+        )
+        self.assertFalse(
+            any(a.action_type == ActionType.MOVE and a.to_pos == Position(x=7, y=3) for a in actions),
+            "Tên lửa không được di chuyển xuyên vật cản tới (7,3)",
+        )
+
+    def test_navy_passes_friendly_shore_and_bombards_inland(self):
+        r_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=6, y=0))
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=9, y=11))
+        r_navy = PieceState(piece_id="r_navy", side=Side.RED, type=PieceType.NAVY, position=Position(x=2, y=4))
+        r_shore = PieceState(piece_id="r_shore", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=2, y=3))
+        r_wall = PieceState(piece_id="r_wall", side=Side.RED, type=PieceType.TANK, position=Position(x=3, y=4))
+        b_inland = PieceState(piece_id="b_inland", side=Side.BLUE, type=PieceType.ARTILLERY, position=Position(x=5, y=4))
+
+        state = self._state([r_cmd, b_cmd, r_navy, r_shore, r_wall, b_inland], side_to_move=Side.RED)
+        actions = [a for a in default_engine_adapter.get_legal_actions(state) if a.piece_id == "r_navy"]
+
+        self.assertTrue(
+            any(a.action_type == ActionType.MOVE and a.to_pos == Position(x=2, y=2) for a in actions),
+            "Hải quân được đi vượt quân đồng minh trên bờ biển x=2",
+        )
+        self.assertTrue(
+            any(a.action_type == ActionType.CAPTURE_STAND and a.target_piece_id == "b_inland" for a in actions),
+            "Hải quân được bắn Pháo hạm vào đất liền vượt vật cản",
+        )
+
+    def test_all_combat_pieces_can_capture_aircraft(self):
+        r_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=6, y=0))
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=9, y=11))
+
+        # Đặt Máy bay Xanh ở (5,4), từng quân Đỏ đứng ở khoảng ăn tương ứng
+        candidates = [
+            PieceState(piece_id="r_inf", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=5, y=3)),
+            PieceState(piece_id="r_mil", side=Side.RED, type=PieceType.MILITIA, position=Position(x=4, y=3)),
+            PieceState(piece_id="r_tank", side=Side.RED, type=PieceType.TANK, position=Position(x=3, y=4)),
+            PieceState(piece_id="r_eng", side=Side.RED, type=PieceType.ENGINEER, position=Position(x=6, y=4)),
+            PieceState(piece_id="r_art", side=Side.RED, type=PieceType.ARTILLERY, position=Position(x=5, y=7)),
+        ]
+        b_air = PieceState(piece_id="b_air", side=Side.BLUE, type=PieceType.AIRCRAFT, position=Position(x=5, y=4))
+        state = self._state([r_cmd, b_cmd, b_air, *candidates], side_to_move=Side.RED)
+        actions = default_engine_adapter.get_legal_actions(state)
+        for cand in candidates:
+            self.assertTrue(
+                any(a.piece_id == cand.piece_id and a.target_piece_id == "b_air" for a in actions),
+                f"Quân {cand.type.value} phải ăn được Máy bay địch",
+            )
+
+    def test_carried_commander_shields_facing_while_carrier_exposes_check(self):
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=6, y=11))
+        for c_type, c_x in [(PieceType.TANK, 6), (PieceType.AIRCRAFT, 6), (PieceType.NAVY, 2)]:
+            b_cmd_cur = b_cmd if c_x == 6 else b_cmd.model_copy(update={"position": Position(x=2, y=11)})
+            carrier = PieceState(piece_id="r_car", side=Side.RED, type=c_type, position=Position(x=c_x, y=3))
+            r_cmd = PieceState(
+                piece_id="r_cmd",
+                side=Side.RED,
+                type=PieceType.COMMANDER,
+                position=Position(x=c_x, y=3),
+                carried_by_id="r_car",
+            )
+            self.assertFalse(
+                is_commanders_facing([r_cmd, carrier, b_cmd_cur]),
+                f"Tư lệnh trên {c_type.value} phải chặn đối mặt trực tiếp",
+            )
+            # Khi có quân Xanh uy hiếp ô gốc của phương tiện, Tư lệnh vẫn bị tính là đang bị chiếu
+            attacker = PieceState(
+                piece_id="b_atk",
+                side=Side.BLUE,
+                type=PieceType.ARTILLERY,
+                position=Position(x=c_x + 2, y=3),
+            )
+            self.assertTrue(
+                is_commander_in_check([r_cmd, carrier, b_cmd_cur, attacker], Side.RED),
+                f"Tư lệnh ngồi trong {c_type.value} vẫn bị chiếu khi ô gốc bị công kích",
+            )
+
+    def test_delayed_solitary_hq_promotion(self):
+        # Đỏ còn Tư lệnh núp trong r_hq, plus 1 Bộ binh r_inf; Xanh ăn r_inf
+        r_hq = PieceState(piece_id="r_hq", side=Side.RED, type=PieceType.HEADQUARTERS, position=Position(x=5, y=1))
+        r_cmd = PieceState(
+            piece_id="r_cmd",
+            side=Side.RED,
+            type=PieceType.COMMANDER,
+            position=Position(x=5, y=1),
+            carried_by_id="r_hq",
+        )
+        r_inf = PieceState(piece_id="r_inf", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=6, y=1))
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=9, y=11))
+        b_tank = PieceState(piece_id="b_tank", side=Side.BLUE, type=PieceType.TANK, position=Position(x=6, y=3))
+
+        state = self._state([r_hq, r_cmd, r_inf, b_cmd, b_tank], side_to_move=Side.BLUE)
+        after_cap, _ = default_engine_adapter.apply_action(
+            state,
+            ActionRequest(
+                action_type=ActionType.CAPTURE_REPLACE,
+                piece_id="b_tank",
+                to_pos=Position(x=6, y=1),
+                target_piece_id="r_inf",
+                state_version=1,
+            ),
+        )
+        hq_mid = next(p for p in after_cap.pieces if p.piece_id == "r_hq")
+        self.assertFalse(hq_mid.is_hero, "Tư lệnh đang núp trong HQ duy nhất -> HQ CHƯA được phong Anh hùng")
+        self.assertGreater(len(after_cap.legal_actions), 0)
+        self.assertTrue(
+            all(a.piece_id == "r_cmd" and a.action_type != ActionType.BOARD for a in after_cap.legal_actions),
+            "Chỉ được phép đưa Tư lệnh bước ra khỏi HQ duy nhất",
+        )
+
+        # Tư lệnh bước ra ngoài -> HQ lập tức phong Anh hùng
+        exit_act = next(a for a in after_cap.legal_actions if a.piece_id == "r_cmd")
+        after_exit, _ = default_engine_adapter.apply_action(
+            after_cap,
+            ActionRequest(
+                action_type=exit_act.action_type,
+                piece_id=exit_act.piece_id,
+                to_pos=exit_act.to_pos,
+                target_piece_id=exit_act.target_piece_id,
+                state_version=after_cap.state_version,
+            ),
+        )
+        hq_after = next(p for p in after_exit.pieces if p.piece_id == "r_hq")
+        self.assertTrue(hq_after.is_hero, "Ngay khi Tư lệnh rời HQ duy nhất, HQ phải phong Anh hùng lập tức")
+
+    def test_select_smart_ai_action_includes_compound_and_never_exposes_commander(self):
+        # Kiểm tra AI trong STACK_ACTIVE và trạng thái thường có chọn tổ hợp/an toàn Tư lệnh
+        r_cmd = PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=6, y=0))
+        r_art = PieceState(piece_id="r_art", side=Side.RED, type=PieceType.ARTILLERY, position=Position(x=4, y=7))
+        b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=9, y=11))
+        b_tank = PieceState(piece_id="b_tank", side=Side.BLUE, type=PieceType.TANK, position=Position(x=4, y=9))
+        b_inf = PieceState(
+            piece_id="b_inf",
+            side=Side.BLUE,
+            type=PieceType.INFANTRY,
+            position=Position(x=4, y=9),
+            carried_by_id="b_tank",
+        )
+
+        # Nước thường: danh sách hợp lệ gồm cả nước để lại quân cõng (carry_cargo=False) và quân cõng bước ra
+        state = self._state([r_cmd, r_art, b_cmd, b_tank, b_inf], side_to_move=Side.BLUE)
+        legal = default_engine_adapter.get_legal_actions(state)
+        self.assertTrue(any(a.piece_id == "b_inf" for a in legal))
+        self.assertTrue(any(a.piece_id == "b_tank" and a.carry_cargo is False for a in legal))
+
+        import random
+        rng = random.Random(42)
+        for _ in range(15):
+            chosen = select_smart_ai_action(state, Side.BLUE, rng=rng)
+            self.assertIsNotNone(chosen)
+            req = ActionRequest(
+                action_type=chosen.action_type,
+                piece_id=chosen.piece_id,
+                to_pos=chosen.to_pos,
+                target_piece_id=chosen.target_piece_id,
+                state_version=state.state_version,
+                carry_cargo=chosen.carry_cargo,
+                is_compound_action=False,
+            )
+            next_st, _ = default_engine_adapter.apply_action(state, req)
+            self.assertFalse(is_commanders_facing(next_st.pieces))
+            self.assertFalse(is_commander_in_check(next_st.pieces, Side.BLUE))
+
+        # STACK_ACTIVE: quân b_inf vừa bước ra khỏi b_tank, b_tank chưa đi -> AI có thể đi b_tank hoặc END_TURN
+        b_inf_moved = b_inf.model_copy(update={"position": Position(x=3, y=9), "carried_by_id": None})
+        b_tank_left = b_tank.model_copy(update={"carrying_piece_ids": []})
+        stack_state = self._state(
+            [r_cmd, r_art, b_cmd, b_tank_left, b_inf_moved],
+            side_to_move=Side.BLUE,
+            turn_phase=TurnPhase.STACK_ACTIVE,
+            compound_origin=Position(x=4, y=9),
+            compound_member_ids=["b_tank", "b_inf"],
+            compound_moved_piece_ids=["b_inf"],
+        )
+        stack_legal = default_engine_adapter.get_legal_actions(stack_state)
+        self.assertTrue(any(a.action_type == ActionType.END_TURN for a in stack_legal))
+        self.assertTrue(any(a.piece_id == "b_tank" for a in stack_legal))
+        seen_actions = set()
+        for seed in range(20):
+            act = select_smart_ai_action(stack_state, Side.BLUE, rng=random.Random(seed))
+            self.assertIsNotNone(act)
+            seen_actions.add((act.action_type, act.piece_id))
+        self.assertGreaterEqual(len(seen_actions), 2)
 
 
 if __name__ == "__main__":
