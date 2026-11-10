@@ -62,6 +62,7 @@ ehthumbs.db
 *-shm
 
 # Research outputs
+research/results/*
 research/runs/*
 !research/runs/README.md
 research/checkpoints/*

@@ -43,6 +43,7 @@ class AtomicAction:
     target_piece_id: str | None = None  # ID quân bị tấn công
     carrier_id: str | None = None       # ID phương tiện được chọn để lên
     passenger_id: str | None = None     # ID quân được đón
+    carry_cargo: bool = True            # True: mang quân cõng theo; False: để lại ở gốc (lượt ghép)
 
 
 @dataclass

@@ -19,11 +19,12 @@ if str(PROJECT_ROOT / "packages") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "packages"))
 
 from commander_game_engine.board import Board, EdgeType, Position, Terrain
-from commander_game_engine.game_state import GameState, Piece, PieceType, Player
-from commander_game_engine.actions import ActionType, AtomicAction
-from commander_game_engine.move_generator import generate_piece_actions
+from commander_game_engine.game_state import GameState, GameStatus, Piece, PieceType, Player
+from commander_game_engine.actions import ActionType, AtomicAction, TurnCommand, TurnCommandType
+from commander_game_engine.move_generator import generate_legal_actions, generate_piece_actions
 from commander_game_engine.engine import apply_action
 from commander_game_engine import rules
+from agents.random_agent import RandomAgent
 
 
 class TestMovementAndObstacles(unittest.TestCase):
@@ -51,14 +52,17 @@ class TestMovementAndObstacles(unittest.TestCase):
         state.add_piece(friendly_inf)
 
         actions_blocked = generate_piece_actions(state, "red_tank")
-        destinations_blocked = {a.end for a in actions_blocked}
+        move_destinations_blocked = {a.end for a in actions_blocked if a.action_type == ActionType.MOVE}
+        pickup_destinations = {a.end for a in actions_blocked if a.action_type == ActionType.PICKUP}
+        all_destinations = {a.end for a in actions_blocked}
 
-        # Kỳ vọng: Mất cả (3, 6) [trùng quân bạn] và (3, 7) [không được nhảy qua đầu]
-        self.assertNotIn((3, 6), destinations_blocked)
-        self.assertNotIn((3, 7), destinations_blocked)
+        # Kỳ vọng: Xe tăng KHÔNG được MOVE đè lên (3, 6) hay nhảy qua đầu tới (3, 7); chỉ có PICKUP lên xe tại (3, 6)
+        self.assertNotIn((3, 6), move_destinations_blocked)
+        self.assertIn((3, 6), pickup_destinations)
+        self.assertNotIn((3, 7), all_destinations)
         # Các hướng khác vẫn đi bình thường
-        self.assertIn((3, 4), destinations_blocked)
-        self.assertIn((3, 3), destinations_blocked)
+        self.assertIn((3, 4), move_destinations_blocked)
+        self.assertIn((3, 3), move_destinations_blocked)
 
     def test_commander_movement_and_capture_range(self) -> None:
         """Tư lệnh di chuyển thẳng không giới hạn, nhưng chỉ ăn quân trong tầm 1 đoạn."""
@@ -366,6 +370,264 @@ class TestHeroPromotion(unittest.TestCase):
         result.state.current_player = Player.RED
         actions = generate_piece_actions(result.state, "red_hq1")
         self.assertTrue(len(actions) > 0, "Sở chỉ huy Anh hùng phải có nước đi")
+
+
+class TestConfirmedRulesDec020(unittest.TestCase):
+    """7. Kiểm thử bộ quy tắc DEC-020 đã được Project Owner xác nhận."""
+
+    def setUp(self) -> None:
+        self.board = Board()
+
+    def test_carried_enemy_deploy_threat_blocks_commander_step(self) -> None:
+        """Tư lệnh bị cấm đi vào ô mà quân đang ngồi trên phương tiện địch có thể triển khai ăn ngay."""
+        state = GameState(board=self.board, current_player=Player.RED)
+        state.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(2, 3)))
+        state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        state.add_piece(Piece(id="blue_tank", piece_type=PieceType.TANK, owner=Player.BLUE, position=(3, 4)))
+        state.pieces["blue_tank"].cargo = ["blue_inf"]
+        state.pieces["blue_inf"] = Piece(
+            id="blue_inf",
+            piece_type=PieceType.INFANTRY,
+            owner=Player.BLUE,
+            position=None,
+            carried_by="blue_tank",
+        )
+
+        legal_ends = {a.end for a in generate_piece_actions(state, "red_cmd")}
+        # Từ blue_tank tại (3,4), Bộ binh Xanh trên xe có thể triển khai ăn thẳng 1 bước tới (2,4) và (3,3)
+        self.assertNotIn((2, 4), legal_ends)
+        self.assertNotIn((3, 3), legal_ends)
+        self.assertIn((2, 2), legal_ends)
+
+    def test_aa_suicide_with_carried_commander_is_illegal(self) -> None:
+        """Máy bay thường chở Tư lệnh không được bay qua hoặc đáp vào vùng phòng không khiến Tư lệnh chết theo."""
+        state = GameState(board=self.board, current_player=Player.RED)
+        state.add_piece(Piece(id="red_air", piece_type=PieceType.AIRCRAFT, owner=Player.RED, position=(2, 4)))
+        state.pieces["red_air"].cargo = ["red_cmd"]
+        state.pieces["red_cmd"] = Piece(
+            id="red_cmd",
+            piece_type=PieceType.COMMANDER,
+            owner=Player.RED,
+            position=None,
+            carried_by="red_air",
+        )
+        state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        state.add_piece(Piece(id="blue_aa", piece_type=PieceType.ANTI_AIRCRAFT, owner=Player.BLUE, position=(4, 4)))
+
+        air_actions = generate_piece_actions(state, "red_air")
+        # Bất kỳ hành động nào còn chở Tư lệnh (carry_cargo=True hoặc BOMB) đi vào/qua vùng PK đều BỊ CẤM
+        air_ends_carrying_cmd = {
+            a.end for a in air_actions if a.carry_cargo or a.action_type == ActionType.BOMB
+        }
+        self.assertNotIn((3, 4), air_ends_carrying_cmd)
+        self.assertNotIn((4, 4), air_ends_carrying_cmd)
+        self.assertNotIn((5, 4), air_ends_carrying_cmd)
+
+        # Riêng đòn rời bỏ cargo (carry_cargo=False) để lại red_cmd an toàn tại (2, 4) vẫn bảo toàn được Tư lệnh
+        for a in air_actions:
+            if a.end == (4, 4):
+                self.assertFalse(a.carry_cargo)
+                self.assertEqual(a.action_type, ActionType.CAPTURE)
+
+    def test_checkmate_wins_with_50_bonus_and_stalemate_draws_with_zero_bonus(self) -> None:
+        """Chiếu hết thắng (+50đ); hết nước đi hợp lệ nhưng không bị chiếu xử HÒA (STALEMATE, +0đ)."""
+        # 1) Stalemate: Đỏ đi red_inf_a (9,9) -> (10,9), khóa hết đường thoát của blue_cmd ở (11,10) mà không chiếu
+        stale_state = GameState(board=self.board, current_player=Player.RED)
+        stale_state.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(0, 5)))
+        stale_state.add_piece(Piece(id="red_inf_a", piece_type=PieceType.INFANTRY, owner=Player.RED, position=(9, 9)))
+        stale_state.add_piece(Piece(id="red_aa1", piece_type=PieceType.ANTI_AIRCRAFT, owner=Player.RED, position=(11, 8)))
+        stale_state.add_piece(Piece(id="red_aa2", piece_type=PieceType.ANTI_AIRCRAFT, owner=Player.RED, position=(9, 10)))
+        stale_state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 10)))
+
+        res_stale = apply_action(
+            stale_state,
+            AtomicAction(action_type=ActionType.MOVE, piece_id="red_inf_a", start=(9, 9), end=(10, 9)),
+        )
+        self.assertTrue(res_stale.accepted)
+        self.assertTrue(res_stale.terminal)
+        self.assertIsNone(res_stale.winner)
+        self.assertEqual(res_stale.terminal_reason, "STALEMATE")
+        self.assertEqual(res_stale.state.game_status, GameStatus.DRAW)
+        self.assertEqual(res_stale.state.scores[Player.RED], 0)
+
+        # 2) Checkmate: cùng thế khóa trên nhưng thêm Pháo Đỏ tại (9,8) chiếu xuyên (10,9) vào (11,10)
+        mate_state = stale_state.copy()
+        mate_state.pieces["red_inf_a"].position = (10, 9)
+        mate_state.add_piece(Piece(id="red_art", piece_type=PieceType.ARTILLERY, owner=Player.RED, position=(8, 8)))
+        res_mate = apply_action(
+            mate_state,
+            AtomicAction(action_type=ActionType.MOVE, piece_id="red_art", start=(8, 8), end=(9, 8)),
+        )
+        self.assertTrue(res_mate.accepted)
+        self.assertTrue(res_mate.terminal)
+        self.assertEqual(res_mate.winner, Player.RED)
+        self.assertEqual(res_mate.terminal_reason, "CHECKMATE")
+        self.assertEqual(res_mate.state.game_status, GameStatus.RED_WIN)
+        self.assertEqual(res_mate.state.scores[Player.RED], 50)
+
+    def test_missile_pierce_capture_only_not_move(self) -> None:
+        """Tên lửa được ăn xuyên vật cản nhưng không được di chuyển xuyên vật cản."""
+        state = GameState(board=self.board, current_player=Player.RED)
+        state.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(0, 6)))
+        state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        state.add_piece(Piece(id="red_msl", piece_type=PieceType.MISSILE, owner=Player.RED, position=(2, 4)))
+        state.add_piece(Piece(id="red_obs", piece_type=PieceType.INFANTRY, owner=Player.RED, position=(3, 4)))
+        state.add_piece(Piece(id="blue_tank", piece_type=PieceType.TANK, owner=Player.BLUE, position=(4, 4)))
+
+        actions = generate_piece_actions(state, "red_msl")
+        captures = {a.end for a in actions if a.action_type in (ActionType.CAPTURE, ActionType.BOMBARD)}
+        self.assertIn((4, 4), captures)
+
+        # Nếu ô (4,4) trống -> vẫn bị red_obs ở (3,4) cản nên KHÔNG MOVE được tới (4,4)
+        del state.pieces["blue_tank"]
+        moves = {a.end for a in generate_piece_actions(state, "red_msl") if a.action_type == ActionType.MOVE}
+        self.assertNotIn((4, 4), moves)
+
+    def test_navy_passes_friendly_shore_piece_and_bombards_inland_over_obstacle(self) -> None:
+        """Hải quân vượt qua quân ta không phải Hải quân trên bờ biển/sông và bắn Pháo hạm vào đất liền qua vật cản."""
+        state = GameState(board=self.board, current_player=Player.RED)
+        state.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(0, 6)))
+        state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        state.add_piece(Piece(id="red_navy", piece_type=PieceType.NAVY, owner=Player.RED, position=(1, 2)))
+        state.add_piece(Piece(id="red_inf", piece_type=PieceType.INFANTRY, owner=Player.RED, position=(2, 2)))
+        state.add_piece(Piece(id="red_art", piece_type=PieceType.ARTILLERY, owner=Player.RED, position=(1, 3)))
+        state.add_piece(Piece(id="blue_tank", piece_type=PieceType.TANK, owner=Player.BLUE, position=(1, 4)))
+
+        navy_actions = generate_piece_actions(state, "red_navy")
+        move_ends = {a.end for a in navy_actions if a.action_type == ActionType.MOVE}
+        bombard_ends = {a.end for a in navy_actions if a.action_type == ActionType.BOMBARD}
+
+        # Vượt qua Bộ binh Đỏ trên bờ (2,2) tới (3,2)
+        self.assertIn((3, 2), move_ends)
+        # Bắn Pháo hạm qua vật cản (1,3) vào Xe tăng Xanh trên đất liền (1,4)
+        self.assertIn((1, 4), bombard_ends)
+
+    def test_all_combat_pieces_can_attack_aircraft(self) -> None:
+        """Mọi loại quân chiến đấu đều có thể tấn công/ăn Máy bay trong tầm hợp lệ."""
+        for ptype in (
+            PieceType.COMMANDER,
+            PieceType.INFANTRY,
+            PieceType.MILITIA,
+            PieceType.TANK,
+            PieceType.ENGINEER,
+            PieceType.ARTILLERY,
+            PieceType.ANTI_AIRCRAFT,
+            PieceType.MISSILE,
+        ):
+            state = GameState(board=self.board, current_player=Player.RED)
+            if ptype != PieceType.COMMANDER:
+                state.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(0, 6)))
+            state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 9)))
+            attacker_id = "red_cmd" if ptype == PieceType.COMMANDER else "red_att"
+            state.add_piece(Piece(id=attacker_id, piece_type=ptype, owner=Player.RED, position=(3, 4)))
+            state.add_piece(Piece(id="blue_air", piece_type=PieceType.AIRCRAFT, owner=Player.BLUE, position=(4, 4)))
+
+            actions = generate_piece_actions(state, attacker_id)
+            self.assertTrue(
+                any(a.end == (4, 4) and a.target_piece_id == "blue_air" for a in actions),
+                f"{ptype.value} phải có khả năng tấn công Máy bay",
+            )
+
+    def test_carried_commander_inside_tank_aircraft_navy_shields_facing(self) -> None:
+        """Tư lệnh ngồi trên Xe tăng, Máy bay, Tàu chiến đều chắn đối mặt với Tư lệnh đối phương."""
+        for carrier_type, cpos in (
+            (PieceType.TANK, (2, 6)),
+            (PieceType.AIRCRAFT, (2, 6)),
+            (PieceType.NAVY, (2, 2)),
+        ):
+            state = GameState(board=self.board, current_player=Player.RED)
+            blue_col = cpos[1]
+            state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, blue_col)))
+            state.add_piece(Piece(id="red_carrier", piece_type=carrier_type, owner=Player.RED, position=(cpos[0], blue_col)))
+            state.pieces["red_carrier"].cargo = ["red_cmd"]
+            state.pieces["red_cmd"] = Piece(
+                id="red_cmd",
+                piece_type=PieceType.COMMANDER,
+                owner=Player.RED,
+                position=None,
+                carried_by="red_carrier",
+            )
+            self.assertTrue(
+                rules.validate_commander_exposure(state).valid,
+                f"Tư lệnh trên {carrier_type.value} phải được che chắn khỏi đối mặt trực tiếp",
+            )
+
+    def test_delayed_solitary_hq_promotion(self) -> None:
+        """Tư lệnh núp trong SCH duy nhất khi quân khác bị ăn -> SCH chưa phong; bước ra thì phong ngay lập tức."""
+        state = GameState(board=self.board, current_player=Player.BLUE)
+        state.add_piece(Piece(id="red_hq", piece_type=PieceType.HEADQUARTERS, owner=Player.RED, position=(1, 5)))
+        state.pieces["red_hq"].cargo = ["red_cmd"]
+        state.pieces["red_cmd"] = Piece(
+            id="red_cmd",
+            piece_type=PieceType.COMMANDER,
+            owner=Player.RED,
+            position=None,
+            carried_by="red_hq",
+        )
+        state.add_piece(Piece(id="red_inf", piece_type=PieceType.INFANTRY, owner=Player.RED, position=(3, 4)))
+        state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        state.add_piece(Piece(id="blue_tank", piece_type=PieceType.TANK, owner=Player.BLUE, position=(3, 6)))
+
+        # Xanh ăn red_inf -> Đỏ chỉ còn red_hq (chứa red_cmd) + red_cmd
+        res1 = apply_action(
+            state,
+            AtomicAction(
+                action_type=ActionType.CAPTURE,
+                piece_id="blue_tank",
+                start=(3, 6),
+                end=(3, 4),
+                target_piece_id="red_inf",
+            ),
+        )
+        self.assertTrue(res1.accepted)
+        s2 = res1.state
+        self.assertFalse(s2.pieces["red_hq"].is_heroic, "SCH chưa được phong Anh hùng khi Tư lệnh còn đang núp bên trong")
+
+        red_legal = generate_legal_actions(s2)
+        self.assertTrue(len(red_legal) > 0)
+        self.assertTrue(all(getattr(a, "piece_id", None) == "red_cmd" for a in red_legal))
+        self.assertFalse(any(getattr(a, "action_type", None) == ActionType.BOARD for a in red_legal))
+
+        # (1, 4) và (1, 6) bị blue_tank Anh hùng tại (3, 4) kiểm soát; bước ra ô an toàn (0, 5) -> red_hq phong Anh hùng ngay
+        red_ends = {getattr(a, "end", None) for a in red_legal}
+        self.assertNotIn((1, 4), red_ends, "Tư lệnh không được bước ra (1, 4) vì bị xe tăng Xanh uy hiếp")
+        exit_move = next(a for a in red_legal if getattr(a, "end", None) == (0, 5))
+        res2 = apply_action(s2, exit_move)
+        self.assertTrue(res2.accepted)
+        self.assertTrue(res2.state.pieces["red_hq"].is_heroic, "SCH duy nhất phải được phong Anh hùng ngay khi Tư lệnh bước ra")
+
+    def test_random_agent_chooses_compound_and_split_moves(self) -> None:
+        """RandomAgent cập nhật nước đi động gồm nước triển khai từ tổ hợp, carry_cargo=False và END_TURN."""
+        state = GameState(board=self.board, current_player=Player.RED)
+        state.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(0, 6)))
+        state.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        state.add_piece(Piece(id="red_tank", piece_type=PieceType.TANK, owner=Player.RED, position=(4, 4)))
+        state.pieces["red_tank"].cargo = ["red_inf"]
+        state.pieces["red_inf"] = Piece(
+            id="red_inf",
+            piece_type=PieceType.INFANTRY,
+            owner=Player.RED,
+            position=None,
+            carried_by="red_tank",
+        )
+
+        legal = generate_legal_actions(state)
+        self.assertTrue(any(isinstance(a, AtomicAction) and a.piece_id == "red_inf" for a in legal))
+        self.assertTrue(any(isinstance(a, AtomicAction) and a.piece_id == "red_tank" and not a.carry_cargo for a in legal))
+        self.assertTrue(any(isinstance(a, AtomicAction) and a.piece_id == "red_tank" and a.carry_cargo for a in legal))
+
+        # Thực thi 1 nước triển khai red_inf -> vào compound_turn, RandomAgent có thể chọn hành động kế tiếp hoặc END_TURN
+        inf_deploy = next(a for a in legal if isinstance(a, AtomicAction) and a.piece_id == "red_inf" and a.end == (4, 5))
+        res_step1 = apply_action(state, inf_deploy)
+        self.assertIsNotNone(res_step1.state.compound_turn)
+
+        stack_legal = generate_legal_actions(res_step1.state)
+        self.assertTrue(any(isinstance(a, TurnCommand) and a.command_type == TurnCommandType.END_TURN for a in stack_legal))
+        agent = RandomAgent(seed=7)
+        decision = agent.select_action(res_step1.state, stack_legal)
+        self.assertIn(decision.action, stack_legal)
+        res_step2 = apply_action(res_step1.state, decision.action)
+        self.assertTrue(res_step2.accepted)
 
 
 if __name__ == "__main__":
