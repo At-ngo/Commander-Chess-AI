@@ -288,3 +288,25 @@ Tài liệu này lưu lại toàn bộ các quyết định kỹ thuật, quy ư
         d) Đưa Tư lệnh trú ẩn vào Sở chỉ huy.
       - **Triển khai đồng bộ:** Hàm select_smart_ai_action tại apps/api/src/services/engine_adapter.py được cấp cho endpoint POST /api/v1/games/{id}/ai-step, và hàm selectSmartAiAction tại apps/web/src/services/mockGameService.ts được áp dụng cho offline fallback trong App.tsx.
 - **Tài liệu tham chiếu:** [GAME_RULES.md](file:///d:/Commander-Chess-AI/docs/GAME_RULES.md#L149), [mockGameService.ts](file:///d:/Commander-Chess-AI/apps/web/src/services/mockGameService.ts), [engine_adapter.py](file:///d:/Commander-Chess-AI/apps/api/src/services/engine_adapter.py), [App.tsx](file:///d:/Commander-Chess-AI/apps/web/src/App.tsx)
+
+---
+
+### DEC-020: Chuẩn hóa Phương án A — An toàn Tư lệnh Tuyệt đối, Hòa Cờ Bí, Sửa Luật Tác chiến & Phong Trễ Sở chỉ huy
+- **Ngày quyết định:** 10/11/2026
+- **Trạng thái:** CONFIRMED
+- **Quyết định (do Project Owner chốt toàn bộ):**
+  1. **Phạm vi triển khai — Phương án A (Full-stack):** Đồng bộ đầy đủ trên cả `packages/commander_game_engine`, `packages/agents`, `apps/api`, `apps/web`, `docs/` và `tests/`.
+  2. **An toàn Tư lệnh tuyệt đối, Chiếu hết thắng & Hòa cờ bí:**
+     - Mọi nước đi khiến Tư lệnh phe mình rơi vào trạng thái bị đe dọa đều bị cấm tuyệt đối và loại bỏ khỏi `legal_actions` (tuyệt đối không fallback sang nước tự sát). Bao gồm cả trường hợp Tư lệnh bị đe dọa bởi **quân địch đang ngồi trên phương tiện của đối phương triển khai trực tiếp ra ăn** (`CAPTURE_REPLACE` lên đất liền/bờ/ngầm) hay Tư lệnh ngồi trong Máy bay thường bị bắn hạ tại vành đai lửa phòng không.
+     - Thắng trận thông thường bằng **Chiếu hết (`CHECKMATE`, +50 điểm)**. Khi đến lượt một bên chỉ còn **0 nước đi hợp lệ** nhưng Tư lệnh **KHÔNG bị chiếu**, ván đấu kết thúc **HÒA (`winner = "DRAW"`, `reason = "STALEMATE"`)**, không cộng thưởng +50 điểm.
+  3. **Chỉnh sửa các quy tắc quân cờ theo xác nhận của Chủ dự án:**
+     - **Tên lửa (`MISSILE`):** Được phép **ăn xuyên vật cản** (`CAPTURE_REPLACE` trên đất/bờ, `CAPTURE_STAND` trên biển `x<=1` hoặc Sở chỉ huy che Tư lệnh), nhưng **KHÔNG được di chuyển (`MOVE`) hay đón/lên xe (`BOARD`/`PICKUP`) xuyên vật cản**.
+     - **Hải quân (`NAVY`):** Được phép **bắn Pháo hạm vào đất liền qua vật cản** trong tầm 3 đoạn (Anh hùng: 4 đoạn); và được phép **vượt qua quân đồng minh không phải Hải quân đang đứng ở bờ biển (`x=2`) hoặc bờ sông (`y=5,6`)** khi di chuyển.
+     - **Tấn công Máy bay (`AIRCRAFT`):** **Tất cả các loại quân chiến đấu đều có thể tấn công/ăn Máy bay** trong tầm ăn quân hợp lệ của quân đó (kể cả Tư lệnh, Bộ binh, Dân quân, Xe tăng, Công binh, Pháo binh).
+     - **Tư lệnh trên phương tiện chắn đối mặt:** Tư lệnh đang ở trong bất kỳ phương tiện sống nào (`TANK`, `AIRCRAFT`, `NAVY`, `HEADQUARTERS`) đều **chắn đường đối mặt trực tiếp** giữa hai Tư lệnh. (Chỉ Sở chỉ huy thường `!is_hero` mới che khỏi chiếu; Tư lệnh ngồi trên `TANK`/`AIRCRAFT`/`NAVY`/Sở chỉ huy Anh hùng vẫn tính là bị chiếu khi ô gốc bị uy hiếp).
+  4. **Phong Anh hùng trễ Sở chỉ huy duy nhất:**
+     - Khi còn 2 Sở chỉ huy + Tư lệnh: không phong.
+     - Khi chỉ còn 1 Sở chỉ huy duy nhất + Tư lệnh (+ 0 quân chiến đấu khác): nếu Tư lệnh đang ở ngoài Sở chỉ huy thì Sở chỉ huy phong Anh hùng ngay lập tức; nếu Tư lệnh **đang núp bên trong Sở chỉ huy đó**, Sở chỉ huy **CHƯA phong Anh hùng ngay**, tới lượt người chơi đó chỉ có lựa chọn đưa Tư lệnh **bước ra khỏi Sở chỉ huy** (không được quay lại núp vào Sở chỉ huy), và ngay khi Tư lệnh bước ra thì Sở chỉ huy duy nhất được phong Anh hùng lập tức.
+  5. **Động bộ `RandomAgent` & Nước đi Tổ hợp:**
+     - Danh sách nước đi hợp lệ được tái tính động sau mỗi trạng thái bàn cờ (kể cả trong lượt `STACK_ACTIVE`). `RandomAgent` và `select_smart_ai_action` / `selectSmartAiAction` thu thập đầy đủ các lựa chọn hợp lệ từ quân được cõng, phương tiện (`carry_cargo = True/False`), nước tiếp theo trong `STACK_ACTIVE` và `END_TURN`.
+- **Tài liệu tham chiếu:** [GAME_RULES.md](file:///d:/Commander-Chess-AI/docs/GAME_RULES.md), [API_CONTRACT.md](file:///d:/Commander-Chess-AI/docs/API_CONTRACT.md), [rules.py](file:///d:/Commander-Chess-AI/packages/commander_game_engine/rules.py), [engine.py](file:///d:/Commander-Chess-AI/packages/commander_game_engine/engine.py), [random_agent.py](file:///d:/Commander-Chess-AI/packages/agents/random_agent.py), [engine_adapter.py](file:///d:/Commander-Chess-AI/apps/api/src/services/engine_adapter.py), [mockGameService.ts](file:///d:/Commander-Chess-AI/apps/web/src/services/mockGameService.ts)

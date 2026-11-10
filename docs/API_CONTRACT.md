@@ -81,7 +81,9 @@ type TurnPhase =
 
 // Lý do kết thúc trận
 type TerminationReason = 
-  | "COMMANDER_CAPTURED"// Tư lệnh bị tiêu diệt (+50 điểm)
+  | "CHECKMATE"         // Chiếu hết Tư lệnh đối phương (+50 điểm)
+  | "STALEMATE"         // Hòa cờ bí: 0 nước đi hợp lệ và không bị chiếu (0 điểm thưởng)
+  | "COMMANDER_CAPTURED"// Tư lệnh bị tiêu diệt (+50 điểm — phòng vệ ngoại lệ)
   | "TIMEOUT"           // Hết thời gian 30 phút (so điểm số)
   | "RESIGNATION"       // Một bên đầu hàng
   | "MUTUAL_DRAW"       // Hai bên đồng thuận hòa
@@ -122,10 +124,12 @@ type TerminationReason =
   "from_pos": { "x": 2, "y": 4 },
   "to_pos": { "x": 2, "y": 5 },
   "target_piece_id": null,
+  "carry_cargo": true,
   "notation": "B [4 ; 2] _ [5 ; 2]",
   "description": "Bộ binh đi thẳng 1 đoạn qua sông sâu"
 }
 ```
+> *Ghi chú:* `carry_cargo` mặc định `true` (phương tiện mang theo quân đang chở khi di chuyển/ăn thế chỗ); đặt `false` khi phương tiện tách lẻ bỏ lại quân cõng hợp lệ tại ô xuất phát (mở lượt tổ hợp `STACK_ACTIVE`). Mọi danh sách `legal_actions` đều đã lọc tuyệt đối các nước khiến Tư lệnh phe mình bị uy hiếp.
 
 #### `GameEvent`
 ```json
@@ -281,44 +285,44 @@ Gửi một hành động (nước đi, ăn quân, lên xe, tách quân, cõng q
   "piece_id": "red_aircraft_1",
   "from_pos": { "x": 4, "y": 1 },
   "to_pos": { "x": 6, "y": 4 },
-  "target_piece_id": "blue_militia_1"
+  "target_piece_id": "blue_militia_1",
+  "is_compound_action": true,
+  "carry_cargo": true
 }
 ```
 
 - **Response:** `200 OK`
 ```json
 {
-  "game_id": "game-20261025-a1b2c3",
-  "status": "IN_PROGRESS",
   "state_version": 2,
-  "side_to_move": "RED",
-  "turn_index": 1,
-  "action_index": 2,
-  "turn_phase": "STACK_ACTIVE",
-  "active_stack_id": "red_tank_1",
-  "remaining_stack_actions": 2,
-  "can_end_turn": true,
-  "applied_action": {
-    "action_type": "CAPTURE_STAND",
-    "piece_id": "red_aircraft_1",
-    "notation": "K [1 ; 4] _@_ D [4 ; 6]"
+  "event": {
+    "event_id": "evt_1730000000",
+    "event_type": "PIECE_CAPTURED",
+    "actor_id": "red_aircraft_1",
+    "target_id": "blue_militia_1",
+    "notation": "K [1 ; 4] _@_ D [4 ; 6]",
+    "score_delta": { "RED": 10, "BLUE": 0 }
   },
-  "events": [
-    {
-      "event_type": "PIECE_CAPTURED",
-      "actor_id": "red_aircraft_1",
-      "target_id": "blue_militia_1",
-      "notation": "K [1 ; 4] _@_ D [4 ; 6]",
-      "score_delta": { "RED": 10, "BLUE": 0 }
-    }
-  ],
-  "scores": { "RED": 10, "BLUE": 0 },
-  "pieces": [ /* danh sách toàn bộ 38 quân cờ cập nhật */ ],
-  "legal_actions": [ /* các hành động tiếp theo của tổ hợp hoặc END_TURN */ ],
-  "is_game_over": false,
-  "result": null
+  "game_state": {
+    "game_id": "game-20261025-a1b2c3",
+    "status": "IN_PROGRESS",
+    "state_version": 2,
+    "side_to_move": "RED",
+    "turn_index": 1,
+    "action_index": 2,
+    "turn_phase": "STACK_ACTIVE",
+    "compound_origin": { "x": 4, "y": 1 },
+    "compound_member_ids": ["red_aircraft_1", "red_tank_1"],
+    "compound_moved_piece_ids": ["red_aircraft_1"],
+    "can_end_turn": true,
+    "scores": { "RED": 10, "BLUE": 0 },
+    "pieces": [ /* danh sách toàn bộ 38 quân cờ cập nhật */ ],
+    "legal_actions": [ /* các hành động hợp lệ còn lại của tổ hợp hoặc END_TURN */ ],
+    "result": null
+  }
 }
 ```
+> *Ghi chú kết thúc ván:* Khi hết nước đi hợp lệ sau khi chuyển lượt (`turn_phase == "NORMAL"`), Backend tự động trả `status: "GAME_OVER"` với `result.winner` (`RED` | `BLUE` | `DRAW`) và `result.reason` (`CHECKMATE` khi bị chiếu, hoặc `STALEMATE` hòa cờ bí khi không bị chiếu).
 - **Error:** `409 Conflict` nếu nước đi trái luật cờ hoặc sai lượt.
 
 ---
@@ -339,7 +343,7 @@ Chuyển `side_to_move` sang phe kế tiếp, đặt lại `turn_phase: "NORMAL"
 ---
 
 #### `POST /api/v1/games/{game_id}/ai-step`
-Kích hoạt lượt đi của AI. Dùng trong chế độ `AI_VS_AI` hoặc khi người chơi hoàn tất lượt của mình ở `HUMAN_VS_AI`.
+Kích hoạt một bước quyết định của AI. Dùng trong chế độ `AI_VS_AI` hoặc khi người chơi hoàn tất lượt của mình ở `HUMAN_VS_AI`. Agent tái tính danh sách nước đi hợp lệ an toàn tuyệt đối (bao gồm nước đơn lẻ, `BOARD`/`PICKUP`, triển khai từ tổ hợp, tách/cõng theo `carry_cargo`, và `END_TURN` khi đang ở `STACK_ACTIVE`).
 
 - **Request:**
 ```json
@@ -349,25 +353,7 @@ Kích hoạt lượt đi của AI. Dùng trong chế độ `AI_VS_AI` hoặc khi
 ```
 
 - **Response:** `200 OK`
-Trả về kết quả hành động mà AI đã chọn, bao gồm metadata suy nghĩ:
-```json
-{
-  "action_taken": {
-    "action_type": "MOVE",
-    "piece_id": "blue_tank_1",
-    "from_pos": { "x": 5, "y": 8 },
-    "to_pos": { "x": 5, "y": 6 },
-    "notation": "T [8 ; 5] _ [6 ; 5]"
-  },
-  "ai_diagnostics": {
-    "agent_id": "heuristic_agent",
-    "thinking_time_ms": 420,
-    "nodes_searched": 1450,
-    "evaluation_score": 15.5
-  },
-  "game_state": { /* GameState mới */ }
-}
-```
+Trả về `ActionResponse` gồm `state_version`, `event` (trong đó `event.details.action_type` ghi nhận rõ loại hành động, bao gồm `END_TURN` khi `actor_id = "COMPOUND"`) và `game_state` mới nhất. Nếu Agent đang trong chuỗi tổ hợp `STACK_ACTIVE` chưa kết thúc, `game_state.turn_phase` giữ `"STACK_ACTIVE"` và `side_to_move` giữ nguyên để gọi `/ai-step` bước kế tiếp.
 
 ---
 
@@ -525,7 +511,8 @@ Tổng hợp thống kê toàn diện từ dữ liệu ván đấu thực nghi�
   "average_moves_per_game": 38.4,
   "average_duration_seconds": 412.5,
   "termination_breakdown": {
-    "COMMANDER_CAPTURED": 98,
+    "CHECKMATE": 92,
+    "STALEMATE": 6,
     "TIMEOUT": 14,
     "RESIGNATION": 8
   }
