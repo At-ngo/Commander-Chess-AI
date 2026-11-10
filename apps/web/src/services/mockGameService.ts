@@ -12,7 +12,7 @@
  * confirmed in docs/OPEN_QUESTIONS.md (Q5 - Q9).
  */
 
-import { PieceState, LegalAction, ActionType, GameEvent, Position, EventType } from '../types';
+import { PieceState, LegalAction, ActionType, GameEvent, Position, EventType, ActiveCompoundState } from '../types';
 import { formatCoordinateNotation } from '../utils/coordinates';
 import { PIECE_VIETNAMESE_NAMES, PIECE_NOTATION_SYMBOL } from '../utils/assets';
 
@@ -185,12 +185,57 @@ export function canBoardCarrier(passenger: PieceState, carrier: PieceState): boo
 }
 
 /**
+ * Tìm quân gốc đang đứng trực tiếp trên bàn cờ
+ */
+export function getRootCarrier(piece: PieceState, allPieces: PieceState[]): PieceState {
+  const byId = new Map<string, PieceState>();
+  for (const p of allPieces) {
+    if (p.is_alive) byId.set(p.piece_id, p);
+  }
+  let cursor = piece;
+  const seen = new Set<string>([piece.piece_id]);
+  while (cursor.carried_by_id != null) {
+    const parent = byId.get(cursor.carried_by_id);
+    if (!parent || seen.has(parent.piece_id)) break;
+    seen.add(parent.piece_id);
+    cursor = parent;
+  }
+  return cursor;
+}
+
+/**
+ * Quy tắc phong Anh hùng trễ cho Sở chỉ huy duy nhất:
+ * Khi phe chỉ còn Tư lệnh + 1 Sở chỉ huy (chưa Anh hùng) và Tư lệnh đang trú trong Sở chỉ huy đó,
+ * Sở chỉ huy CHƯA phong Anh hùng; người chơi chỉ được đi nước đưa Tư lệnh rời khỏi Sở chỉ huy.
+ */
+export function delayedSolitaryHqCommanderId(
+  allPieces: PieceState[],
+  side: 'RED' | 'BLUE'
+): string | null {
+  const alive = allPieces.filter((p) => p.is_alive && p.side === side);
+  const nonCmdNonHq = alive.filter((p) => p.type !== 'COMMANDER' && p.type !== 'HEADQUARTERS');
+  const hqPieces = alive.filter((p) => p.type === 'HEADQUARTERS');
+  const cmd = alive.find((p) => p.type === 'COMMANDER');
+  if (
+    cmd &&
+    nonCmdNonHq.length === 0 &&
+    hqPieces.length === 1 &&
+    !hqPieces[0].is_hero &&
+    cmd.carried_by_id === hqPieces[0].piece_id
+  ) {
+    return cmd.piece_id;
+  }
+  return null;
+}
+
+/**
  * Tính toán toàn bộ các giao điểm thuộc Vành đai lửa phòng không của một phe (RULE-AA-001, RULE-HERO-003, Q6)
  */
 export function getAirDefenseZones(targetSide: 'RED' | 'BLUE', allPieces: PieceState[]): { x: number; y: number }[] {
   const aaUnits = allPieces.filter(
     (p) =>
       p.is_alive &&
+      !p.carried_by_id &&
       p.side === targetSide &&
       (p.type === 'ANTI_AIR' || p.type === 'MISSILE' || p.type === 'NAVY')
   );
@@ -312,6 +357,7 @@ export function isAircraftFlightAffectedByAa(
 
 /**
  * Kiểm tra xem hai Tư lệnh có đang đối mặt nhau trên cùng hàng/cột không (BUG-CMD-001)
+ * Tư lệnh nằm trên phương tiện (Xe tăng, Máy bay, Tàu chiến) hoặc trong Sở chỉ huy đều chặn đối mặt!
  */
 export function isCommandersFacing(allPieces: PieceState[]): boolean {
   const redCmd = allPieces.find((p) => p.is_alive && p.side === 'RED' && p.type === 'COMMANDER');
@@ -319,26 +365,14 @@ export function isCommandersFacing(allPieces: PieceState[]): boolean {
 
   if (!redCmd || !blueCmd) return false;
 
-  // Nếu một trong hai Tư lệnh đang trú ẩn trong Sở chỉ huy thì Sở chỉ huy che chở hoàn toàn (Q9)
-  const isRedInHq = allPieces.some(
-    (p) =>
-      p.is_alive &&
-      p.side === 'RED' &&
-      p.type === 'HEADQUARTERS' &&
-      p.position.x === redCmd.position.x &&
-      p.position.y === redCmd.position.y &&
-      redCmd.carried_by_id === p.piece_id
-  );
-  const isBlueInHq = allPieces.some(
-    (p) =>
-      p.is_alive &&
-      p.side === 'BLUE' &&
-      p.type === 'HEADQUARTERS' &&
-      p.position.x === blueCmd.position.x &&
-      p.position.y === blueCmd.position.y &&
-      blueCmd.carried_by_id === p.piece_id
-  );
-  if (isRedInHq || isBlueInHq) return false;
+  if (redCmd.carried_by_id != null && allPieces.some((p) => p.is_alive && p.piece_id === redCmd.carried_by_id)) {
+    return false;
+  }
+  if (blueCmd.carried_by_id != null && allPieces.some((p) => p.is_alive && p.piece_id === blueCmd.carried_by_id)) {
+    return false;
+  }
+
+  const visible = allPieces.filter((p) => p.is_alive && !p.carried_by_id);
 
   // 1. Cùng cột dọc (x giống nhau)
   if (redCmd.position.x === blueCmd.position.x) {
@@ -346,8 +380,8 @@ export function isCommandersFacing(allPieces: PieceState[]): boolean {
     const minY = Math.min(redCmd.position.y, blueCmd.position.y);
     const maxY = Math.max(redCmd.position.y, blueCmd.position.y);
 
-    const hasObstacle = allPieces.some(
-      (p) => p.is_alive && p.position.x === x && p.position.y > minY && p.position.y < maxY
+    const hasObstacle = visible.some(
+      (p) => p.position.x === x && p.position.y > minY && p.position.y < maxY
     );
     if (!hasObstacle) return true; // Lộ mặt Tư lệnh trên cột dọc!
   }
@@ -358,8 +392,8 @@ export function isCommandersFacing(allPieces: PieceState[]): boolean {
     const minX = Math.min(redCmd.position.x, blueCmd.position.x);
     const maxX = Math.max(redCmd.position.x, blueCmd.position.x);
 
-    const hasObstacle = allPieces.some(
-      (p) => p.is_alive && p.position.y === y && p.position.x > minX && p.position.x < maxX
+    const hasObstacle = visible.some(
+      (p) => p.position.y === y && p.position.x > minX && p.position.x < maxX
     );
     if (!hasObstacle) return true; // Lộ mặt Tư lệnh trên hàng ngang!
   }
@@ -375,13 +409,14 @@ export function isHqFacingEnemyCommander(
   enemyCmd: PieceState,
   allPieces: PieceState[]
 ): boolean {
+  if (!enemyCmd.is_alive || enemyCmd.carried_by_id != null) return false;
+  const visible = allPieces.filter((p) => p.is_alive && !p.carried_by_id);
   if (hq.position.x === enemyCmd.position.x) {
     const x = hq.position.x;
     const minY = Math.min(hq.position.y, enemyCmd.position.y);
     const maxY = Math.max(hq.position.y, enemyCmd.position.y);
-    const hasObstacle = allPieces.some(
+    const hasObstacle = visible.some(
       (p) =>
-        p.is_alive &&
         p.position.x === x &&
         p.position.y > minY &&
         p.position.y < maxY &&
@@ -394,9 +429,8 @@ export function isHqFacingEnemyCommander(
     const y = hq.position.y;
     const minX = Math.min(hq.position.x, enemyCmd.position.x);
     const maxX = Math.max(hq.position.x, enemyCmd.position.x);
-    const hasObstacle = allPieces.some(
+    const hasObstacle = visible.some(
       (p) =>
-        p.is_alive &&
         p.position.y === y &&
         p.position.x > minX &&
         p.position.x < maxX &&
@@ -409,8 +443,115 @@ export function isHqFacingEnemyCommander(
 }
 
 /**
- * Kiểm tra xem một ô (targetX, targetY) có đang bị bất kỳ quân địch nào tấn công/chiếu không.
- * (Dùng để ngăn Tư lệnh di chuyển vào ô bị đối phương ăn, kiểm tra Chiếu và Chiếu hết)
+ * Kiểm tra xem Sở chỉ huy mục tiêu có đang che chở Tư lệnh bên trong không (Q9)
+ */
+export function isHqShelteringCommander(target: PieceState, allPieces: PieceState[]): boolean {
+  if (target.type !== 'HEADQUARTERS') return false;
+  return allPieces.some(
+    (p) => p.is_alive && p.type === 'COMMANDER' && p.carried_by_id === target.piece_id
+  );
+}
+
+function pieceThreatensSquare(
+  pieces: PieceState[],
+  p: PieceState,
+  targetX: number,
+  targetY: number,
+  pieceMap: Map<string, PieceState>
+): boolean {
+  if (p.type === 'HEADQUARTERS' && !p.is_hero) return false;
+
+  const originPiece = p.carried_by_id != null ? getRootCarrier(p, pieces) : p;
+  const px = originPiece.position.x;
+  const py = originPiece.position.y;
+  if (px === targetX && py === targetY) return false;
+
+  // Quân đang ngồi trên phương tiện địch muốn triển khai ăn trực tiếp: không thể thế chỗ trên biển (trừ Navy)
+  if (p.carried_by_id != null && isSeaSquare(targetX) && p.type !== 'NAVY') {
+    return false;
+  }
+
+  const dx = targetX - px;
+  const dy = targetY - py;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  const isOrth = adx === 0 || ady === 0;
+  const isDiag = adx === ady;
+  if (!isOrth && !isDiag) return false;
+
+  const dist = Math.max(adx, ady);
+  const stepX = dx === 0 ? 0 : dx > 0 ? 1 : -1;
+  const stepY = dy === 0 ? 0 : dy > 0 ? 1 : -1;
+
+  let blocked = false;
+  for (let s = 1; s < dist; s++) {
+    if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
+      blocked = true;
+      break;
+    }
+  }
+
+  if (p.type === 'COMMANDER') {
+    if (p.is_hero) return dist <= 2 && !blocked;
+    return isOrth && dist === 1;
+  }
+  if (p.type === 'INFANTRY' || p.type === 'ENGINEER' || p.type === 'ANTI_AIR') {
+    const dirsOk = p.is_hero ? true : isOrth;
+    const maxR = p.is_hero ? 2 : 1;
+    return dirsOk && dist <= maxR && !blocked;
+  }
+  if (p.type === 'MILITIA') {
+    return dist <= (p.is_hero ? 2 : 1) && !blocked;
+  }
+  if (p.type === 'TANK') {
+    const dirsOk = p.is_hero ? true : isOrth;
+    const maxR = p.is_hero ? 3 : 2;
+    return dirsOk && dist <= maxR && !blocked;
+  }
+  if (p.type === 'MISSILE') {
+    // Tên lửa được phép ăn xuyên vật cản (ngang/dọc và chéo)
+    const maxR = isOrth ? (p.is_hero ? 3 : 2) : (p.is_hero ? 2 : 1);
+    return dist <= maxR;
+  }
+  if (p.type === 'ARTILLERY') {
+    return dist <= (p.is_hero ? 4 : 3);
+  }
+  if (p.type === 'AIRCRAFT') {
+    return dist <= (p.is_hero ? 5 : 4);
+  }
+  if (p.type === 'NAVY') {
+    if (!canNavyOccupySquare(px, py)) return false;
+    const targetOcc = pieceMap.get(`${targetX},${targetY}`);
+    if (targetOcc && targetOcc.type === 'NAVY') {
+      const maxNav = p.is_hero ? 5 : 4;
+      if (dist > maxNav) return false;
+      for (let s = 1; s <= dist; s++) {
+        const nx = px + stepX * s;
+        const ny = py + stepY * s;
+        const prevX = px + stepX * (s - 1);
+        const prevY = py + stepY * (s - 1);
+        if (isFordSquare(nx, ny) || !canNavyOccupySquare(nx, ny)) return false;
+        if (isNavyLandDiagonal(prevX, prevY, nx, ny)) return false;
+        if (s < dist) {
+          const occ = pieceMap.get(`${nx},${ny}`);
+          if (occ && (occ.type === 'NAVY' || occ.side !== p.side)) return false;
+        }
+      }
+      return true;
+    }
+    // Pháo hạm bắn vào đất liền / mục tiêu khác (tầm 3, Anh hùng 4), vượt đất liền/vật cản
+    return dist <= (p.is_hero ? 4 : 3);
+  }
+  if (p.type === 'HEADQUARTERS') {
+    return p.is_hero && dist <= 2 && !blocked;
+  }
+
+  return false;
+}
+
+/**
+ * Kiểm tra xem một ô (targetX, targetY) có đang bị bất kỳ quân địch nào tấn công/chiếu không
+ * (bao gồm cả quân địch đang ngồi trên phương tiện triển khai ăn trực tiếp).
  */
 export function isSquareAttackedByEnemy(
   pieces: PieceState[],
@@ -426,169 +567,9 @@ export function isSquareAttackedByEnemy(
   }
 
   for (const p of pieces) {
-    if (!p.is_alive || p.side !== enemySide || p.carried_by_id) continue;
-
-    const px = p.position.x;
-    const py = p.position.y;
-    const dx = targetX - px;
-    const dy = targetY - py;
-    const adx = Math.abs(dx);
-    const ady = Math.abs(dy);
-
-    if (adx === 0 && ady === 0) continue;
-
-    const isOrth = adx === 0 || ady === 0;
-    const isDiag = adx === ady;
-    if (!isOrth && !isDiag) continue;
-
-    const dist = Math.max(adx, ady);
-    const stepX = dx === 0 ? 0 : dx > 0 ? 1 : -1;
-    const stepY = dy === 0 ? 0 : dy > 0 ? 1 : -1;
-
-    // 1. COMMANDER
-    if (p.type === 'COMMANDER') {
-      if (isOrth) {
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
-      if ((isOrth && dist === 1) || (p.is_hero && dist <= 2)) {
-        return true;
-      }
-    }
-
-    // 2. INFANTRY & ENGINEER
-    else if (p.type === 'INFANTRY' || p.type === 'ENGINEER') {
-      const dirsOk = p.is_hero ? true : isOrth;
-      const maxR = p.is_hero ? 2 : 1;
-      if (dirsOk && dist <= maxR) {
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
-    }
-
-    // 3. MILITIA
-    else if (p.type === 'MILITIA') {
-      const maxR = p.is_hero ? 2 : 1;
-      if (dist <= maxR) {
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
-    }
-
-    // 4. ANTI_AIR
-    else if (p.type === 'ANTI_AIR') {
-      const dirsOk = p.is_hero ? true : isOrth;
-      const maxR = p.is_hero ? 2 : 1;
-      if (dirsOk && dist <= maxR) {
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
-    }
-
-    // 5. TANK
-    else if (p.type === 'TANK') {
-      const dirsOk = p.is_hero ? true : isOrth;
-      const maxR = p.is_hero ? 3 : 2;
-      if (dirsOk && dist <= maxR) {
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
-    }
-
-    // 6. MISSILE
-    else if (p.type === 'MISSILE') {
-      const maxR = isOrth ? (p.is_hero ? 3 : 2) : (p.is_hero ? 2 : 1);
-      if (dist <= maxR) {
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
-    }
-
-    // 7. ARTILLERY
-    else if (p.type === 'ARTILLERY') {
-      const maxR = p.is_hero ? 4 : 3;
-      if (dist <= maxR) {
-        // Pháo binh bắn xuyên qua mọi vật cản khi ăn quân!
-        return true;
-      }
-    }
-
-    // 8. AIRCRAFT
-    else if (p.type === 'AIRCRAFT') {
-      const maxR = p.is_hero ? 5 : 4;
-      if (dist <= maxR) {
-        // Máy bay bay xuyên qua mọi vật cản!
-        return true;
-      }
-    }
-
-    // 9. NAVY
-    else if (p.type === 'NAVY') {
-      const maxR = p.is_hero ? 4 : 3;
-      if (dist <= maxR && canNavyOccupySquare(px, py)) {
-        if (isDiag && isNavyLandDiagonal(px, py, targetX, targetY)) {
-          continue;
-        }
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          const occ = pieceMap.get(`${px + stepX * s},${py + stepY * s}`);
-          if (occ && occ.type === 'NAVY') {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
-    }
-
-    // 10. HEADQUARTERS
-    else if (p.type === 'HEADQUARTERS') {
-      if (p.is_hero && dist <= 2) {
-        let blocked = false;
-        for (let s = 1; s < dist; s++) {
-          if (pieceMap.has(`${px + stepX * s},${py + stepY * s}`)) {
-            blocked = true;
-            break;
-          }
-        }
-        if (!blocked) return true;
-      }
+    if (!p.is_alive || p.side !== enemySide) continue;
+    if (pieceThreatensSquare(pieces, p, targetX, targetY, pieceMap)) {
+      return true;
     }
   }
 
@@ -601,16 +582,16 @@ export function isSquareAttackedByEnemy(
 export function isCommanderInCheck(pieces: PieceState[], side: 'RED' | 'BLUE'): boolean {
   const cmd = pieces.find((p) => p.is_alive && p.side === side && p.type === 'COMMANDER');
   if (!cmd) return false;
+  const enemySide = side === 'RED' ? 'BLUE' : 'RED';
   if (cmd.carried_by_id) {
     const carrier = pieces.find((p) => p.is_alive && p.piece_id === cmd.carried_by_id);
     if (!carrier) return false;
-    if (carrier.type === 'HEADQUARTERS') {
-      return false; // Trú ẩn an toàn trong Sở chỉ huy (phải diệt Sở chỉ huy trước)
+    if (carrier.type === 'HEADQUARTERS' && !carrier.is_hero) {
+      return false; // Trú ẩn an toàn trong Sở chỉ huy thường
     }
-    const enemySide = side === 'RED' ? 'BLUE' : 'RED';
-    return isSquareAttackedByEnemy(pieces, carrier.position.x, carrier.position.y, enemySide);
+    const root = getRootCarrier(carrier, pieces);
+    return isSquareAttackedByEnemy(pieces, root.position.x, root.position.y, enemySide);
   }
-  const enemySide = side === 'RED' ? 'BLUE' : 'RED';
   return isSquareAttackedByEnemy(pieces, cmd.position.x, cmd.position.y, enemySide);
 }
 
@@ -668,107 +649,199 @@ export function getAllCarriedPieceIds(carrierId: string, allPieces: PieceState[]
   return result;
 }
 
+function canNestPair(
+  inner: PieceState,
+  outer: PieceState,
+  allPieces: PieceState[],
+  originY: number
+): boolean {
+  const outerFree: PieceState = { ...outer, carried_by_id: null, carrying_piece_ids: [] };
+  const innerFree: PieceState = { ...inner, carried_by_id: null };
+  if (!canBoardCarrier(innerFree, outerFree)) return false;
+  if (outer.type === 'ENGINEER' && originY !== 5 && originY !== 6) return false;
+  const totalNested = 1 + getAllCarriedPieceIds(inner.piece_id, allPieces).length;
+  const maxCap = outer.type === 'ENGINEER' || outer.type === 'HEADQUARTERS' ? 1 : 2;
+  return totalNested <= maxCap;
+}
+
+function detachCargoMap(
+  actor: PieceState,
+  origin: Position,
+  allPieces: PieceState[]
+): Map<string, { carriedById: string | null; position: Position }> {
+  const result = new Map<string, { carriedById: string | null; position: Position }>();
+  const direct = allPieces.filter((p) => p.is_alive && p.carried_by_id === actor.piece_id);
+  if (direct.length === 0) return result;
+  if (direct.length === 1) {
+    result.set(direct[0].piece_id, { carriedById: null, position: { ...origin } });
+    for (const subId of getAllCarriedPieceIds(direct[0].piece_id, allPieces)) {
+      const subP = allPieces.find((x) => x.piece_id === subId);
+      if (subP) {
+        result.set(subId, { carriedById: subP.carried_by_id ?? null, position: { ...origin } });
+      }
+    }
+    return result;
+  }
+  const [p1, p2] = direct;
+  const [rootP, nestedP] = canNestPair(p2, p1, allPieces, origin.y) ? [p1, p2] : [p2, p1];
+  result.set(rootP.piece_id, { carriedById: null, position: { ...origin } });
+  result.set(nestedP.piece_id, { carriedById: rootP.piece_id, position: { ...origin } });
+  for (const subId of getAllCarriedPieceIds(nestedP.piece_id, allPieces)) {
+    const subP = allPieces.find((x) => x.piece_id === subId);
+    if (subP) {
+      result.set(subId, { carriedById: subP.carried_by_id ?? null, position: { ...origin } });
+    }
+  }
+  return result;
+}
+
+export function applyHeroPromotions(pieces: PieceState[]): PieceState[] {
+  let updated = pieces;
+  for (const side of ['RED', 'BLUE'] as const) {
+    const alivePieces = updated.filter((p) => p.is_alive && p.side === side);
+    const nonCmdNonHq = alivePieces.filter((p) => p.type !== 'COMMANDER' && p.type !== 'HEADQUARTERS');
+    const hqPieces = alivePieces.filter((p) => p.type === 'HEADQUARTERS');
+    const cmd = alivePieces.find((p) => p.type === 'COMMANDER');
+
+    if (nonCmdNonHq.length === 1 && !nonCmdNonHq[0].is_hero) {
+      const heroId = nonCmdNonHq[0].piece_id;
+      updated = updated.map((p) => (p.piece_id === heroId ? { ...p, is_hero: true } : p));
+    } else if (nonCmdNonHq.length === 0 && hqPieces.length === 1 && !hqPieces[0].is_hero) {
+      const soleHq = hqPieces[0];
+      if (cmd && cmd.carried_by_id === soleHq.piece_id) {
+        continue; // Phong trễ: chờ Tư lệnh bước ra khỏi Sở chỉ huy
+      }
+      const heroHqId = soleHq.piece_id;
+      updated = updated.map((p) => (p.piece_id === heroHqId ? { ...p, is_hero: true } : p));
+    }
+  }
+  return updated;
+}
+
 /**
  * Mô phỏng trạng thái sau hành động để kiểm tra tính hợp lệ
  */
-function simulateAction(action: LegalAction, pieces: PieceState[]): PieceState[] {
-  const actor = pieces.find((p) => p.piece_id === action.piece_id);
+export function simulateAction(action: LegalAction, pieces: PieceState[]): PieceState[] {
+  if (action.action_type === 'END_TURN') return pieces;
+
+  const actor = pieces.find((p) => p.is_alive && p.piece_id === action.piece_id);
+  if (!actor) return pieces;
   const target = action.target_piece_id
-    ? pieces.find((p) => p.piece_id === action.target_piece_id)
+    ? pieces.find((p) => p.is_alive && p.piece_id === action.target_piece_id)
     : undefined;
   const isCarrierPickingUp =
     action.action_type === 'BOARD' &&
-    actor != null &&
     target != null &&
     canBoardCarrier(target, actor);
-  const allCarriedIds = getAllCarriedPieceIds(action.piece_id, pieces);
+
+  const actorOrigin = getRootCarrier(actor, pieces).position;
+  const enemySide = actor.side === 'RED' ? 'BLUE' : 'RED';
+  const enemyAaZone = getAirDefenseZones(enemySide, pieces);
+  const enemyAaUnits = pieces.filter(
+    (p) =>
+      p.is_alive &&
+      !p.carried_by_id &&
+      p.side === enemySide &&
+      (p.type === 'ANTI_AIR' || p.type === 'MISSILE' || p.type === 'NAVY')
+  );
+  const isActorAircraft = actor.type === 'AIRCRAFT' && !actor.is_hero;
+  const isTargetAaUnit = enemyAaUnits.some(
+    (u) => u.position.x === action.to_pos.x && u.position.y === action.to_pos.y
+  );
+  const isInAaZone =
+    isActorAircraft &&
+    (isTargetAaUnit || isAircraftFlightAffectedByAa(actorOrigin, action.to_pos, enemyAaZone, enemyAaUnits));
+
+  const actorDescendants = new Set(getAllCarriedPieceIds(actor.piece_id, pieces));
+  const targetDescendants = new Set(target ? getAllCarriedPieceIds(target.piece_id, pieces) : []);
+
+  const leaveBehind =
+    (action.carry_cargo === false &&
+      (action.action_type === 'MOVE' || action.action_type === 'CAPTURE_REPLACE') &&
+      actorDescendants.size > 0) ||
+    (actor.type === 'HEADQUARTERS' &&
+      (action.action_type === 'MOVE' || action.action_type === 'CAPTURE_REPLACE') &&
+      actorDescendants.size > 0);
+  const detachedMap = leaveBehind ? detachCargoMap(actor, actorOrigin, pieces) : new Map();
 
   const updated = pieces.map((p) => {
-    // Nếu phương tiện đang chở quân vừa tách ra di chuyển/triển khai
-    if (
-      (p.carrying_piece_ids && p.carrying_piece_ids.includes(action.piece_id)) ||
-      (actor && actor.carried_by_id === p.piece_id)
-    ) {
-      return {
-        ...p,
-        carrying_piece_ids: (p.carrying_piece_ids || []).filter((id) => id !== action.piece_id),
-      };
+    if (action.action_type === 'BOARD' && isCarrierPickingUp) {
+      if (p.piece_id === action.piece_id) {
+        return { ...p, position: { ...action.to_pos }, carried_by_id: null };
+      }
+      if (p.piece_id === action.target_piece_id) {
+        return { ...p, position: { ...action.to_pos }, carried_by_id: action.piece_id };
+      }
+      if (actorDescendants.has(p.piece_id) || targetDescendants.has(p.piece_id)) {
+        return { ...p, position: { ...action.to_pos } };
+      }
+      return p;
     }
+
     if (action.target_piece_id && p.piece_id === action.target_piece_id) {
       if (action.action_type === 'BOARD') {
-        if (isCarrierPickingUp) {
-          return {
-            ...p,
-            position: { ...action.to_pos },
-            carried_by_id: action.piece_id,
-          };
-        } else {
-          const cur = p.carrying_piece_ids || [];
-          return {
-            ...p,
-            carrying_piece_ids: cur.includes(action.piece_id) ? cur : [...cur, action.piece_id],
-          };
-        }
+        const cur = p.carrying_piece_ids || [];
+        return {
+          ...p,
+          carrying_piece_ids: cur.includes(action.piece_id) ? cur : [...cur, action.piece_id],
+        };
       }
-      return { ...p, is_alive: false };
+      return { ...p, is_alive: false, carried_by_id: null };
     }
+
+    if (
+      action.target_piece_id &&
+      action.action_type !== 'BOARD' &&
+      targetDescendants.has(p.piece_id)
+    ) {
+      if (target && target.type === 'HEADQUARTERS') {
+        if (p.carried_by_id === target.piece_id) {
+          return { ...p, carried_by_id: null, is_alive: true, position: { ...target.position } };
+        }
+        return { ...p, position: { ...target.position } };
+      }
+      return { ...p, is_alive: false, carried_by_id: null };
+    }
+
     if (p.piece_id === action.piece_id) {
+      if (isInAaZone) {
+        return { ...p, is_alive: false, position: { ...action.to_pos }, carried_by_id: null };
+      }
       if (action.action_type === 'CAPTURE_STAND') return p;
       if (action.action_type === 'BOARD') {
-        if (isCarrierPickingUp) {
-          return {
-            ...p,
-            position: { ...action.to_pos },
-            carried_by_id: null,
-          };
-        } else {
-          return {
-            ...p,
-            position: { ...action.to_pos },
-            carried_by_id: action.target_piece_id || null,
-          };
-        }
+        return { ...p, position: { ...action.to_pos }, carried_by_id: action.target_piece_id || null };
       }
       return { ...p, position: { ...action.to_pos }, carried_by_id: null };
     }
-    // Quân được cõng bởi phương tiện di chuyển
-    if (allCarriedIds.includes(p.piece_id) && action.action_type !== 'CAPTURE_STAND') {
-      if (action.carry_cargo === false) {
-        // Phương tiện đi một mình, để lại quân cõng ở vị trí xuất phát!
-        if (p.carried_by_id === action.piece_id) {
-          const otherCarriersAtOrigin = pieces.filter(
-            (other) =>
-              other.is_alive &&
-              other.piece_id !== action.piece_id &&
-              !allCarriedIds.includes(other.piece_id) &&
-              other.position.x === action.from_pos.x &&
-              other.position.y === action.from_pos.y &&
-              (other.type === 'AIRCRAFT' || other.type === 'NAVY' || other.type === 'TANK')
-          );
-          const newCarrier = otherCarriersAtOrigin.find((c) => canBoardCarrier(p, c));
-          return {
-            ...p,
-            position: { ...action.from_pos },
-            carried_by_id: newCarrier ? newCarrier.piece_id : null,
-          };
-        }
-        return {
-          ...p,
-          position: { ...action.from_pos },
-        };
+
+    if (actorDescendants.has(p.piece_id)) {
+      const detached = detachedMap.get(p.piece_id);
+      if (detached) {
+        return { ...p, carried_by_id: detached.carriedById, position: { ...detached.position } };
       }
+      if (isInAaZone) {
+        return { ...p, is_alive: false, carried_by_id: null };
+      }
+      if (action.action_type === 'CAPTURE_STAND') return p;
       return { ...p, position: { ...action.to_pos } };
     }
+
     return p;
   });
 
-  // Đồng bộ tính nhất quán 2 chiều tuyệt đối giữa carried_by_id và carrying_piece_ids
-  return updated.map((p) => ({
-    ...p,
-    carrying_piece_ids: updated
+  // Đồng bộ 2 chiều và tọa độ quân được chở theo quân gốc
+  const synced = updated.map((p) => {
+    const cargo = updated
       .filter((other) => other.is_alive && other.carried_by_id === p.piece_id)
-      .map((other) => other.piece_id),
-  }));
+      .map((other) => other.piece_id);
+    if (p.is_alive && p.carried_by_id != null) {
+      const root = getRootCarrier(p, updated);
+      return { ...p, carrying_piece_ids: cargo, position: { ...root.position } };
+    }
+    return { ...p, carrying_piece_ids: cargo };
+  });
+
+  return applyHeroPromotions(synced);
 }
 
 /**
@@ -779,38 +852,18 @@ export function canCarrierLeaveCargoBehind(carrier: PieceState, allPieces: Piece
   const directPassengers = allPieces.filter(
     (p) => p.is_alive && p.carried_by_id === carrier.piece_id
   );
-  if (directPassengers.length === 0) {
-    return true;
-  }
-  // Nếu phương tiện đang ở ngoài biển (x <= 1): không thể bỏ lại quân bộ trên biển nếu không có tàu chiến khác đón
-  if (isSeaSquare(carrier.position.x)) {
-    const hasOtherNavy = allPieces.some(
-      (p) =>
-        p.is_alive &&
-        p.piece_id !== carrier.piece_id &&
-        p.position.x === carrier.position.x &&
-        p.position.y === carrier.position.y &&
-        p.type === 'NAVY'
+  if (directPassengers.length === 0) return true;
+  const root = getRootCarrier(carrier, allPieces);
+  if (isSeaSquare(root.position.x)) return false;
+  if (directPassengers.length === 1) return true;
+  if (directPassengers.length === 2) {
+    const [p1, p2] = directPassengers;
+    return (
+      canNestPair(p2, p1, allPieces, root.position.y) ||
+      canNestPair(p1, p2, allPieces, root.position.y)
     );
-    if (!hasOtherNavy) return false;
   }
-  if (directPassengers.length === 1) {
-    return true;
-  }
-  // Nếu có từ 2 quân trở lên: kiểm tra xem tại vị trí xuất phát có phương tiện nào khác không
-  const otherCarriersAtOrigin = allPieces.filter(
-    (p) =>
-      p.is_alive &&
-      p.piece_id !== carrier.piece_id &&
-      p.position.x === carrier.position.x &&
-      p.position.y === carrier.position.y &&
-      (p.type === 'AIRCRAFT' || p.type === 'NAVY' || p.type === 'TANK')
-  );
-  if (otherCarriersAtOrigin.length > 0) {
-    return true; // Có phương tiện khác ở lại để nhận cõng
-  }
-  const [p1, p2] = directPassengers;
-  return canBoardCarrier(p2, p1) || canBoardCarrier(p1, p2);
+  return false;
 }
 
 /**
@@ -823,9 +876,16 @@ export function getMockLegalActions(
 ): LegalAction[] {
   if (!selectedPiece.is_alive) return [];
 
-  const candidateActions: LegalAction[] = [];
-  const { x, y } = selectedPiece.position;
   const side = selectedPiece.side;
+  const trapCmdId = delayedSolitaryHqCommanderId(allPieces, side);
+  if (trapCmdId !== null && selectedPiece.piece_id !== trapCmdId) {
+    return [];
+  }
+
+  const candidateActions: LegalAction[] = [];
+  const isCarried = selectedPiece.carried_by_id != null;
+  const root = isCarried ? getRootCarrier(selectedPiece, allPieces) : selectedPiece;
+  const { x, y } = root.position;
   const enemySide = side === 'RED' ? 'BLUE' : 'RED';
   const fromNot = formatCoordinateNotation({ x, y });
   const pieceName = PIECE_VIETNAMESE_NAMES[selectedPiece.type] || selectedPiece.type;
@@ -838,6 +898,7 @@ export function getMockLegalActions(
     allPieces.some(
       (p) =>
         p.is_alive &&
+        !p.carried_by_id &&
         p.side === enemySide &&
         (p.type === 'ANTI_AIR' || p.type === 'MISSILE' || p.type === 'NAVY') &&
         p.position.x === qx &&
@@ -853,7 +914,6 @@ export function getMockLegalActions(
     if (selectedPiece.type === 'NAVY') {
       return canNavyOccupySquare(nx, ny);
     }
-    // Tên lửa và máy bay KHÔNG thể di chuyển/đáp trên biển trống (x <= 1)
     if (isSeaSquare(nx)) {
       const occ = getPieceAt(nx, ny);
       if (occ) {
@@ -866,14 +926,25 @@ export function getMockLegalActions(
     return true;
   };
 
+  const canSplitSolo =
+    !isCarried &&
+    selectedPiece.type !== 'HEADQUARTERS' &&
+    Boolean(selectedPiece.carrying_piece_ids && selectedPiece.carrying_piece_ids.length > 0) &&
+    canCarrierLeaveCargoBehind(selectedPiece, allPieces);
+  const effectiveCarryCargo =
+    selectedPiece.type === 'HEADQUARTERS' ? false : carryCargo || !canSplitSolo;
+
   const pushMove = (nx: number, ny: number, labelSuffix: string = '') => {
     const toNot = formatCoordinateNotation({ x: nx, y: ny });
-    const isCarrier = selectedPiece.carrying_piece_ids && selectedPiece.carrying_piece_ids.length > 0;
+    const isCarrier =
+      selectedPiece.type !== 'HEADQUARTERS' &&
+      selectedPiece.carrying_piece_ids &&
+      selectedPiece.carrying_piece_ids.length > 0;
     const carryDesc = isCarrier
-      ? (carryCargo ? ' (mang theo quân cõng)' : ' (tách lẻ đi một mình, để lại quân)')
+      ? (effectiveCarryCargo ? ' (mang theo quân cõng)' : ' (tách lẻ đi một mình, để lại quân)')
       : '';
     candidateActions.push({
-      action_id: `m_${selectedPiece.piece_id}_${nx}_${ny}_${carryCargo ? 'with' : 'solo'}`,
+      action_id: `m_${selectedPiece.piece_id}_${nx}_${ny}_${effectiveCarryCargo ? 'with' : 'solo'}`,
       action_type: 'MOVE',
       piece_id: selectedPiece.piece_id,
       from_pos: { x, y },
@@ -881,7 +952,7 @@ export function getMockLegalActions(
       target_piece_id: null,
       notation: `${pieceSymbol} ${fromNot} _ ${toNot}`,
       description: `${pieceName} ${selectedPiece.carried_by_id ? 'triển khai rời phương tiện đến' : 'tiến đến'} ${toNot}${carryDesc}${labelSuffix}`,
-      carry_cargo: carryCargo,
+      carry_cargo: effectiveCarryCargo,
     });
   };
 
@@ -892,17 +963,21 @@ export function getMockLegalActions(
     actType: ActionType,
     labelSuffix = ''
   ) => {
+    if (isCarried && actType === 'CAPTURE_STAND') return;
     const toNot = formatCoordinateNotation({ x: nx, y: ny });
     const targetSymbol = PIECE_NOTATION_SYMBOL[target.type] || target.type;
     const enemyName = PIECE_VIETNAMESE_NAMES[target.type] || target.type;
     const isStand = actType === 'CAPTURE_STAND';
     const actionSymbol = isStand ? '_@_' : '@';
-    const isCarrier = selectedPiece.carrying_piece_ids && selectedPiece.carrying_piece_ids.length > 0;
+    const isCarrier =
+      selectedPiece.type !== 'HEADQUARTERS' &&
+      selectedPiece.carrying_piece_ids &&
+      selectedPiece.carrying_piece_ids.length > 0;
     const carryDesc = isCarrier && !isStand
-      ? (carryCargo ? ' (mang theo quân cõng)' : ' (tách lẻ đi một mình, để lại quân)')
+      ? (effectiveCarryCargo ? ' (mang theo quân cõng)' : ' (tách lẻ đi một mình, để lại quân)')
       : '';
     candidateActions.push({
-      action_id: `c_${selectedPiece.piece_id}_${target.piece_id}_${actType}_${carryCargo ? 'with' : 'solo'}`,
+      action_id: `c_${selectedPiece.piece_id}_${target.piece_id}_${actType}_${effectiveCarryCargo ? 'with' : 'solo'}`,
       action_type: actType,
       piece_id: selectedPiece.piece_id,
       from_pos: { x, y },
@@ -911,11 +986,12 @@ export function getMockLegalActions(
       notation: `${pieceSymbol} ${fromNot} ${actionSymbol} ${targetSymbol} ${toNot}`,
       description: `${pieceName} ${isStand ? 'tấn công tại chỗ tiêu diệt' : 'tiến công bắt'
         } ${enemyName} tại ${toNot}${carryDesc}${labelSuffix}`,
-      carry_cargo: isStand ? false : carryCargo,
+      carry_cargo: isStand ? false : effectiveCarryCargo,
     });
   };
 
   const pushBoard = (carrier: PieceState) => {
+    if (trapCmdId !== null && carrier.type === 'HEADQUARTERS') return;
     const carrierName = PIECE_VIETNAMESE_NAMES[carrier.type] || carrier.type;
     const carrierSymbol = PIECE_NOTATION_SYMBOL[carrier.type] || carrier.type;
     const toNot = formatCoordinateNotation(carrier.position);
@@ -932,11 +1008,12 @@ export function getMockLegalActions(
   };
 
   const pushPickup = (passenger: PieceState) => {
+    if (isCarried) return;
     const passengerName = PIECE_VIETNAMESE_NAMES[passenger.type] || passenger.type;
     const passengerSymbol = PIECE_NOTATION_SYMBOL[passenger.type] || passenger.type;
     const toNot = formatCoordinateNotation(passenger.position);
     candidateActions.push({
-      action_id: `b_${selectedPiece.piece_id}_${passenger.piece_id}`,
+      action_id: `p_${selectedPiece.piece_id}_${passenger.piece_id}`,
       action_type: 'BOARD',
       piece_id: selectedPiece.piece_id,
       from_pos: { x, y },
@@ -969,13 +1046,16 @@ export function getMockLegalActions(
           pushMove(nx, ny);
         } else {
           if (occ.side !== side) {
-            pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
+            if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+              pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (bắn tàu ngoài biển)' : '');
+            } else {
+              pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
+            }
           }
           break;
         }
       }
     }
-    return candidateActions;
   }
 
   // =========================================================================
@@ -995,8 +1075,8 @@ export function getMockLegalActions(
           pushMove(nx, ny);
         } else {
           if (occ.side !== side) {
-            if (isSeaSquare(nx)) {
-              pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (bắn tàu ngoài biển)');
+            if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+              pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (bắn tàu ngoài biển)' : '');
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
@@ -1027,8 +1107,8 @@ export function getMockLegalActions(
           pushMove(nx, ny);
         } else {
           if (occ.side !== side) {
-            if (isSeaSquare(nx)) {
-              pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (bắn tàu ngoài biển)');
+            if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+              pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (bắn tàu ngoài biển)' : '');
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
@@ -1064,8 +1144,8 @@ export function getMockLegalActions(
           }
         } else {
           if (occ.side !== side) {
-            if (isSeaSquare(nx)) {
-              pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (bắn tàu ngoài biển)');
+            if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+              pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (bắn tàu ngoài biển)' : '');
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
@@ -1097,8 +1177,8 @@ export function getMockLegalActions(
           pushMove(nx, ny);
         } else {
           if (occ.side !== side) {
-            if (isSeaSquare(nx)) {
-              pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (bắn tàu ngoài biển)');
+            if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+              pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (bắn tàu ngoài biển)' : '');
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
@@ -1116,60 +1196,79 @@ export function getMockLegalActions(
   // =========================================================================
   // 6. TÊN LỬA (MISSILE):
   // - Ngang / dọc 1–2 đoạn, chéo 1 đoạn (Anh hùng: ngang/dọc 1–3 đoạn, chéo 1–2 đoạn).
-  // - Bắn tàu ngoài biển không thế chỗ; vượt sông sâu sang ô trống bị cấm (trừ khi ăn quân).
+  // - KHÔNG được di chuyển hoặc BOARD xuyên vật cản; ĐƯỢC PHÉP ăn xuyên vật cản!
+  // - Không vào biển trống; vượt sông sâu sang ô trống bị cấm (trừ ngầm đá x=5,7 hoặc khi ăn quân).
   // =========================================================================
   if (selectedPiece.type === 'MISSILE') {
     const straightRange = selectedPiece.is_hero ? 3 : 2;
     const diagRange = selectedPiece.is_hero ? 2 : 1;
 
     for (const [dx, dy] of ORTHOGONAL) {
+      // Pha 1: Di chuyển & Lên xe (bị cản bởi vật cản và biển)
       for (let step = 1; step <= straightRange; step++) {
         const nx = x + dx * step;
         const ny = y + dy * step;
         if (!isInsideBoard(nx, ny)) break;
-
         const occ = getPieceAt(nx, ny);
         if (!occ) {
-          if (isSeaSquare(nx)) break; // Tên lửa không thể di chuyển trên biển
+          if (isSeaSquare(nx)) break;
           if (canPieceCrossRiverToEmpty('MISSILE', x, y, nx, ny)) {
             pushMove(nx, ny);
           }
         } else {
-          if (occ.side !== side) {
-            if (isSeaSquare(nx)) {
-              pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (phóng tên lửa diệt tàu biển tại chỗ)');
-            } else {
-              pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
-            }
-          } else if (canBoardCarrier(selectedPiece, occ)) {
+          if (occ.side === side && canBoardCarrier(selectedPiece, occ)) {
             pushBoard(occ);
           }
           break;
         }
       }
+      // Pha 2: Phóng tên lửa ăn xuyên vật cản & vượt sông sâu
+      for (let step = 1; step <= straightRange; step++) {
+        const nx = x + dx * step;
+        const ny = y + dy * step;
+        if (!isInsideBoard(nx, ny)) break;
+        const occ = getPieceAt(nx, ny);
+        if (occ && occ.side !== side) {
+          if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+            pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (phóng tên lửa diệt tàu biển tại chỗ)' : '');
+          } else {
+            pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ' (phóng tên lửa xuyên vật cản)');
+          }
+        }
+      }
     }
 
     for (const [dx, dy] of DIAGONAL) {
+      // Pha 1: Di chuyển & Lên xe chéo (bị cản)
       for (let step = 1; step <= diagRange; step++) {
         const nx = x + dx * step;
         const ny = y + dy * step;
         if (!isInsideBoard(nx, ny)) break;
-
         const occ = getPieceAt(nx, ny);
         if (!occ) {
-          if (isSeaSquare(nx)) break; // Tên lửa không thể di chuyển trên biển
+          if (isSeaSquare(nx)) break;
           if (canPieceCrossRiverToEmpty('MISSILE', x, y, nx, ny)) {
             pushMove(nx, ny);
           }
         } else {
-          if (occ.side !== side) {
-            if (isSeaSquare(nx)) {
-              pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (phóng tên lửa diệt tàu biển tại chỗ)');
-            } else {
-              pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
-            }
+          if (occ.side === side && canBoardCarrier(selectedPiece, occ)) {
+            pushBoard(occ);
           }
           break;
+        }
+      }
+      // Pha 2: Ăn xuyên vật cản chéo
+      for (let step = 1; step <= diagRange; step++) {
+        const nx = x + dx * step;
+        const ny = y + dy * step;
+        if (!isInsideBoard(nx, ny)) break;
+        const occ = getPieceAt(nx, ny);
+        if (occ && occ.side !== side) {
+          if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+            pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (phóng tên lửa diệt tàu biển tại chỗ)' : '');
+          } else {
+            pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ' (phóng tên lửa xuyên vật cản)');
+          }
         }
       }
     }
@@ -1211,8 +1310,8 @@ export function getMockLegalActions(
 
         const occ = getPieceAt(nx, ny);
         if (occ && occ.side !== side) {
-          if (isSeaSquare(nx)) {
-            pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (pháo kích diệt tàu biển tại chỗ)');
+          if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+            pushCapture(nx, ny, occ, 'CAPTURE_STAND', isSeaSquare(nx) ? ' (pháo kích diệt tàu biển tại chỗ)' : '');
           } else {
             // Pháo binh chỉ có thể ăn thế chỗ, không thể thả bom / bắn tại chỗ như máy bay
             pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ' (bắn ăn quân thế chỗ)');
@@ -1224,7 +1323,7 @@ export function getMockLegalActions(
 
   // =========================================================================
   // 8. MÁY BAY (AIRCRAFT):
-  // - Đi và ăn 8 hướng 1–4 đoạn, BAY VÀ ĂN XUYÊN QUÂN.
+  // - Đi và ăn 8 hướng 1–4 đoạn, BAY VÀ ĂN XUYÊN QUÂN CÙNG PHE LẪN ĐỐI PHƯƠNG.
   // - Máy bay Anh hùng là Máy bay tàng hình: MIỄN NHIỄM VÀNH ĐAI LỬA (RULE-HERO-002).
   // =========================================================================
   if (selectedPiece.type === 'AIRCRAFT') {
@@ -1258,12 +1357,17 @@ export function getMockLegalActions(
           } else if (occ.type === 'NAVY' && canBoardCarrier(selectedPiece, occ)) {
             pushBoard(occ);
           }
-          break; // Không bay xuyên qua quân cùng phe
         } else {
           // Quân địch
-          if (isSeaSquare(nx)) {
-            // Mục tiêu trên biển: Bắt buộc thả bom tại chỗ (không thể thế chỗ vào nước)
-            pushCapture(nx, ny, occ, 'CAPTURE_STAND', ` 💣 (ném bom tàu biển tại chỗ)${aaWarn}`);
+          if (isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces)) {
+            // Mục tiêu trên biển hoặc Sở chỉ huy đang che chở Tư lệnh: Bắt buộc thả bom tại chỗ
+            pushCapture(
+              nx,
+              ny,
+              occ,
+              'CAPTURE_STAND',
+              `${isSeaSquare(nx) ? ' 💣 (ném bom tàu biển tại chỗ)' : ' 💣 (ném bom tại chỗ)'}${aaWarn}`
+            );
           } else {
             if (occ.type === 'AIRCRAFT') {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ` (không chiến bắt buộc thế chỗ)${aaWarn}`);
@@ -1272,7 +1376,6 @@ export function getMockLegalActions(
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ` 🎯 (oanh tạc thế chỗ)${aaWarn}`);
             }
           }
-          break; // Dừng lại ở quân địch
         }
       }
     }
@@ -1292,9 +1395,11 @@ export function getMockLegalActions(
         const ny = y + dy * step;
         if (!isInsideBoard(nx, ny) || !canOccupySquare(nx, ny)) break;
 
-        // Mô phỏng nước đi tới (nx, ny) để kiểm tra đối mặt Tư lệnh địch
+        // Mô phỏng nước đi tới (nx, ny) (rời khỏi phương tiện nếu đang cõng) để kiểm tra đối mặt
         const simPieces = allPieces.map((p) =>
-          p.piece_id === selectedPiece.piece_id ? { ...p, position: { x: nx, y: ny } } : p
+          p.piece_id === selectedPiece.piece_id
+            ? { ...p, position: { x: nx, y: ny }, carried_by_id: null }
+            : p
         );
 
         // BUG-CMD-001: Nếu ô này tạo thế lộ mặt, CHẶN ô này VÀ CHẶN cả đường phía sau!
@@ -1307,11 +1412,16 @@ export function getMockLegalActions(
           pushMove(nx, ny);
         } else {
           if (step === 1 && occ.side !== side) {
-            pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
+            pushCapture(
+              nx,
+              ny,
+              occ,
+              isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces) ? 'CAPTURE_STAND' : 'CAPTURE_REPLACE'
+            );
           } else if (step === 1 && occ.side === side) {
             // Vào Sở chỉ huy (Q9)
             if (occ.type === 'HEADQUARTERS' && !occ.is_hero) {
-              if (enemyCmd && !isHqFacingEnemyCommander(occ, enemyCmd, allPieces)) {
+              if (!enemyCmd || !isHqFacingEnemyCommander(occ, enemyCmd, allPieces)) {
                 pushBoard(occ);
               }
             } else if (canBoardCarrier(selectedPiece, occ)) {
@@ -1327,91 +1437,82 @@ export function getMockLegalActions(
   // =========================================================================
   // 10. HẢI QUÂN (NAVY):
   // - BUG-NAVY-001: CẤM vào hoặc đi xuyên qua sông ngầm (isFordSquare).
-  // - BUG-NAVY-002 & Q8: Bắn quân bờ (isShoreSquare) BẮT BUỘC THẾ CHỖ. Bắn đất liền sâu BẮN TẠI CHỖ.
-  // - BUG-NAVY-003: Tầm đánh Hải quân địch <= 4; Tầm đánh quân khác <= 3.
-  // - BUG-NAVY-004: Đi xuyên qua quân đất liền trên bờ; BỊ CHẶN bởi Tàu chiến.
-  // - BUG-NAVY-005 & Q5: Hải quân chỉ đánh hải quân địch ở phía trước (tàu đầu tiên chặn tàu sau).
+  // - BUG-NAVY-002 & Q8: Bắn quân bờ (isShoreSquare) thế chỗ (trừ HQ đang che Tư lệnh). Đất liền sâu bắn tại chỗ.
+  // - BUG-NAVY-003: Tầm đánh Hải quân địch <= 4 (Anh hùng: 5); Pháo hạm bắn đất liền <= 3 (Anh hùng: 4).
+  // - Hải quân ĐƯỢC PHÉP đi vượt quân ta (không phải tàu chiến) ở bờ biển / bờ sông!
+  // - Pháo hạm ĐƯỢC PHÉP bắn vào đất liền vượt vật cản / ngầm / đất liền trong tầm 3 (Anh hùng: 4)!
   // =========================================================================
   if (selectedPiece.type === 'NAVY') {
     const maxStraight = selectedPiece.is_hero ? 5 : 4;
+    const maxGun = selectedPiece.is_hero ? 4 : 3;
+    const shoreCaptureCoords = new Set<string>();
 
     for (const [dx, dy] of ALL_8) {
-      let enemyNavyEncountered = false;
-
+      // Pha 1: Hải lộ trên biển / sông / bờ (vượt quân ta trên bờ không phải Hải quân)
       for (let step = 1; step <= maxStraight; step++) {
         const nx = x + dx * step;
         const ny = y + dy * step;
-        if (!isInsideBoard(nx, ny)) break;
+        if (!isInsideBoard(nx, ny) || isFordSquare(nx, ny)) break;
 
-        // CẤM di chuyển vào hoặc đi xuyên qua sông ngầm (BUG-NAVY-001)
-        if (isFordSquare(nx, ny)) break;
-
-        // CẤM di chuyển hoặc đi xuyên qua đường chéo thuộc đất liền (ví dụ (7, 2) đến (6, 3))
         const prevX = x + dx * (step - 1);
         const prevY = y + dy * (step - 1);
         if (isNavyLandDiagonal(prevX, prevY, nx, ny)) {
-          break; // Bị đất liền chặn dừng tia ngay lập tức
+          break;
+        }
+        if (!canNavyOccupySquare(nx, ny)) {
+          break;
         }
 
         const occ = getPieceAt(nx, ny);
-        const isWater = canNavyOccupySquare(nx, ny);
-
         if (!occ) {
-          if (!isWater) {
-            // Giữa đường vướng đất liền: tàu chiến dừng tia ngay lập tức, không thể đi xuyên qua đất liền (RULE-NAVY-002)
-            break;
+          pushMove(nx, ny);
+        } else if (occ.side === side) {
+          if (occ.type === 'NAVY') {
+            break; // Bị tàu chiến cùng phe cản hoàn toàn
           }
-          if (!enemyNavyEncountered) {
-            pushMove(nx, ny);
+          if (canBoardCarrier(occ, selectedPiece) && !occ.carried_by_id) {
+            pushPickup(occ);
           }
+          continue; // Đi vượt quân đất liền cùng phe ở bờ biển/bờ sông!
         } else {
-          if (occ.side === side) {
-            if (occ.type === 'NAVY') {
-              break; // Bị tàu chiến cùng phe cản hoàn toàn
-            } else if (isWater && canBoardCarrier(occ, selectedPiece) && !occ.carried_by_id) {
-              pushPickup(occ);
-              break;
+          if (occ.type === 'NAVY') {
+            pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ' (hải chiến bắt buộc thế chỗ)');
+          } else if (step <= maxGun) {
+            if (isHqShelteringCommander(occ, allPieces)) {
+              pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (pháo hạm bắn đất liền tại chỗ)');
             } else {
-              // Quân đất liền cùng phe trên bờ: chỉ đi xuyên qua nếu ô này là nước (RULE-SHORE-001)
-              if (!isWater) break;
-              continue;
+              pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ' (hải quân đổ bộ lên bờ)');
             }
-          } else {
-            // Quân địch
-            if (occ.type === 'NAVY') {
-              if (!isWater) break;
-              if (!enemyNavyEncountered) {
-                // Tấn công tàu chiến địch (tối đa 4 đoạn)
-                pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ' (hải chiến bắt buộc thế chỗ)');
-                enemyNavyEncountered = true; // Chặn các tàu chiến địch phía sau trên tia này (Q5)
-              }
-              continue; // Tàu chiến cản bước di chuyển
-            } else {
-              // Quân địch trên đất liền hoặc máy bay (tối đa 3 đoạn, Anh hùng: 4 đoạn - BUG-NAVY-003)
-              const maxLandStep = selectedPiece.is_hero ? 4 : 3;
-              if (step <= maxLandStep) {
-                if (isShoreSquare(nx, ny)) {
-                  // Mục tiêu ở ngay bờ: BẮT BUỘC THẾ CHỖ (Q8)
-                  pushCapture(nx, ny, occ, 'CAPTURE_REPLACE', ' (hải quân đổ bộ lên bờ)');
-                } else {
-                  // Mục tiêu ở đất liền sâu: BẮT BUỘC BẮN TẠI CHỖ (Q8 & BUG-NAVY-002)
-                  pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (pháo hạm bắn đất liền tại chỗ)');
-                }
-              }
-              if (!isWater) break; // Nếu không phải ô nước thì tia dừng lại
-            }
+            shoreCaptureCoords.add(`${nx},${ny}`);
           }
+          break; // Bị tàu/quân địch ở hải lộ cản lại
+        }
+      }
+
+      // Pha 2: Pháo hạm bắn vào đất liền / mục tiêu khác (tầm 3, Anh hùng: 4) xuyên vật cản/đất liền
+      for (let step = 1; step <= maxGun; step++) {
+        const nx = x + dx * step;
+        const ny = y + dy * step;
+        if (!isInsideBoard(nx, ny)) break;
+        if (shoreCaptureCoords.has(`${nx},${ny}`)) continue;
+        const occ = getPieceAt(nx, ny);
+        if (occ && occ.side !== side && occ.type !== 'NAVY') {
+          pushCapture(nx, ny, occ, 'CAPTURE_STAND', ' (pháo hạm bắn đất liền tại chỗ)');
         }
       }
     }
   }
 
   // =========================================================================
-  // BỘ LỌC TỐI THƯỢNG: Loại bỏ mọi nước đi khiến 2 Tư lệnh đối mặt nhau trực tiếp
-  // hoặc khiến Tư lệnh phe mình rơi vào ô bị chiếu / bị ăn (DEC-019)
+  // BỘ LỌC TỐI THƯỢNG: Loại bỏ mọi nước đi khiến Tư lệnh phe mình chết,
+  // 2 Tư lệnh đối mặt nhau trực tiếp, hoặc để lộ Tư lệnh bị chiếu / bị ăn (DEC-019)
   // =========================================================================
+  const ownCmdBefore = allPieces.find((p) => p.is_alive && p.side === side && p.type === 'COMMANDER');
   const legalActions = candidateActions.filter((act) => {
     const simPieces = simulateAction(act, allPieces);
+    if (ownCmdBefore && !simPieces.some((p) => p.is_alive && p.piece_id === ownCmdBefore.piece_id)) {
+      return false;
+    }
     if (isCommandersFacing(simPieces)) return false;
     if (isCommanderInCheck(simPieces, side)) return false;
     return true;
@@ -1420,27 +1521,106 @@ export function getMockLegalActions(
   return legalActions;
 }
 
+export function evaluateTurnHandoffOutcome(
+  pieces: PieceState[],
+  nextSide: 'RED' | 'BLUE'
+): {
+  enemyHasLegalMove: boolean;
+  isEnemyInCheck: boolean;
+  isCheckmate: boolean;
+  isStalemate: boolean;
+} {
+  const hasCmd = pieces.some((p) => p.is_alive && p.side === nextSide && p.type === 'COMMANDER');
+  const isEnemyInCheck = hasCmd ? isCommanderInCheck(pieces, nextSide) : false;
+  if (!hasCmd) {
+    return {
+      enemyHasLegalMove: true,
+      isEnemyInCheck: false,
+      isCheckmate: false,
+      isStalemate: false,
+    };
+  }
+  const enemyAllAlive = pieces.filter((p) => p.is_alive && p.side === nextSide);
+  let enemyHasLegalMove = false;
+  for (const ep of enemyAllAlive) {
+    if (getMockLegalActions(ep, pieces, true).length > 0) {
+      enemyHasLegalMove = true;
+      break;
+    }
+    if (
+      ep.carried_by_id == null &&
+      ep.carrying_piece_ids &&
+      ep.carrying_piece_ids.length > 0 &&
+      canCarrierLeaveCargoBehind(ep, pieces) &&
+      getMockLegalActions(ep, pieces, false).length > 0
+    ) {
+      enemyHasLegalMove = true;
+      break;
+    }
+  }
+  const isCheckmate = !enemyHasLegalMove && isEnemyInCheck;
+  const isStalemate = !enemyHasLegalMove && !isEnemyInCheck;
+  return { enemyHasLegalMove, isEnemyInCheck, isCheckmate, isStalemate };
+}
+
 /**
  * Apply action, auto-promote heroes, and update board state
  */
 export function applyMockAction(
   action: LegalAction,
-  pieces: PieceState[]
+  pieces: PieceState[],
+  evaluateTurnEnd: boolean = true
 ): {
   nextPieces: PieceState[];
   event: GameEvent;
   capturedPiece: PieceState | null;
 } {
+  if (action.action_type === 'END_TURN') {
+    const activeSide: 'RED' | 'BLUE' =
+      (pieces.find((p) => p.is_alive && p.piece_id === action.piece_id)?.side) || 'RED';
+    const nextSide = activeSide === 'RED' ? 'BLUE' : 'RED';
+    const outcome = evaluateTurnEnd
+      ? evaluateTurnHandoffOutcome(pieces, nextSide)
+      : { enemyHasLegalMove: true, isEnemyInCheck: false, isCheckmate: false, isStalemate: false };
+    const scoreDelta = { RED: 0, BLUE: 0 };
+    let notation = action.notation || 'CONFIRM_DEPLOYMENT';
+    if (outcome.isCheckmate) {
+      scoreDelta[activeSide] += 50;
+      if (!notation.includes('#')) notation = `${notation} #`;
+    }
+    return {
+      nextPieces: pieces,
+      capturedPiece: null,
+      event: {
+        event_id: `evt_${Date.now()}`,
+        event_type: 'PIECE_MOVED',
+        actor_id: action.piece_id || 'COMPOUND',
+        target_id: null,
+        notation,
+        score_delta: scoreDelta,
+        details: {
+          action_type: 'END_TURN',
+          is_check: outcome.isEnemyInCheck,
+          is_checkmate: outcome.isCheckmate,
+          is_stalemate: outcome.isStalemate,
+          hero_promoted: false,
+        },
+      },
+    };
+  }
+
   const actor = pieces.find((p) => p.piece_id === action.piece_id);
   let captured: PieceState | null = null;
   const scoreDelta: { RED: number; BLUE: number } = { RED: 0, BLUE: 0 };
   const enemySide = actor ? (actor.side === 'RED' ? 'BLUE' : 'RED') : 'BLUE';
+  const actorOrigin = actor ? getRootCarrier(actor, pieces).position : action.from_pos;
 
   const enemyAaZone = actor ? getAirDefenseZones(enemySide, pieces) : [];
   const enemyAaUnits = actor
     ? pieces.filter(
       (p) =>
         p.is_alive &&
+        !p.carried_by_id &&
         p.side === enemySide &&
         (p.type === 'ANTI_AIR' || p.type === 'MISSILE' || p.type === 'NAVY')
     )
@@ -1452,20 +1632,31 @@ export function applyMockAction(
   const isInAaZone =
     isActorAircraft &&
     actor &&
-    (isTargetAaUnit || isAircraftFlightAffectedByAa(actor.position, action.to_pos, enemyAaZone, enemyAaUnits));
+    (isTargetAaUnit || isAircraftFlightAffectedByAa(actorOrigin, action.to_pos, enemyAaZone, enemyAaUnits));
 
   const allCarriedIds = getAllCarriedPieceIds(action.piece_id, pieces);
+  const allCarriedSet = new Set(allCarriedIds);
   const target = action.target_piece_id
     ? pieces.find((p) => p.piece_id === action.target_piece_id)
     : undefined;
+  const targetDescendants = new Set(target ? getAllCarriedPieceIds(target.piece_id, pieces) : []);
   const isCarrierPickingUp =
     action.action_type === 'BOARD' &&
     actor != null &&
     target != null &&
     canBoardCarrier(target, actor);
 
+  const leaveBehind =
+    actor != null &&
+    ((action.carry_cargo === false &&
+      (action.action_type === 'MOVE' || action.action_type === 'CAPTURE_REPLACE') &&
+      allCarriedSet.size > 0) ||
+      (actor.type === 'HEADQUARTERS' &&
+        (action.action_type === 'MOVE' || action.action_type === 'CAPTURE_REPLACE') &&
+        allCarriedSet.size > 0));
+  const detachedMap = leaveBehind && actor ? detachCargoMap(actor, actorOrigin, pieces) : new Map();
+
   let nextPieces = pieces.map((p) => {
-    // Nếu p là phương tiện đang cõng quân actor mà actor vừa tách ra di chuyển/triển khai
     if (
       (p.carrying_piece_ids && p.carrying_piece_ids.includes(action.piece_id)) ||
       (actor && actor.carried_by_id === p.piece_id)
@@ -1476,28 +1667,17 @@ export function applyMockAction(
       };
     }
 
-    // 1. Nếu là hành động BOARD (Lên phương tiện / Trú ẩn Sở chỉ huy / Phương tiện đón cõng quân)
+    // 1. Hành động BOARD (Lên phương tiện / Trú ẩn Sở chỉ huy / Phương tiện đón cõng quân)
     if (action.action_type === 'BOARD') {
       if (isCarrierPickingUp) {
         if (p.piece_id === action.piece_id) {
-          return {
-            ...p,
-            position: { ...action.to_pos },
-            carried_by_id: null,
-          };
+          return { ...p, position: { ...action.to_pos }, carried_by_id: null };
         }
         if (p.piece_id === action.target_piece_id) {
-          return {
-            ...p,
-            position: { ...action.to_pos },
-            carried_by_id: action.piece_id,
-          };
+          return { ...p, position: { ...action.to_pos }, carried_by_id: action.piece_id };
         }
-        if (allCarriedIds.includes(p.piece_id)) {
-          return {
-            ...p,
-            position: { ...action.to_pos },
-          };
+        if (allCarriedSet.has(p.piece_id) || targetDescendants.has(p.piece_id)) {
+          return { ...p, position: { ...action.to_pos } };
         }
       } else {
         if (p.piece_id === action.piece_id) {
@@ -1514,66 +1694,46 @@ export function applyMockAction(
             carrying_piece_ids: cur.includes(action.piece_id) ? cur : [...cur, action.piece_id],
           };
         }
+        if (allCarriedSet.has(p.piece_id)) {
+          return { ...p, position: { ...action.to_pos } };
+        }
       }
       return p;
     }
 
-    // 2. Nếu quân này là mục tiêu bị tấn công
+    // 2. Quân này là mục tiêu bị tấn công
     if (action.target_piece_id && p.piece_id === action.target_piece_id) {
-      // NGOẠI LỆ ĐẶC BIỆT CHO SỞ CHỈ HUY (Q9 & BUG-HQ-001):
-      // Nếu Tư lệnh đang trú ẩn trong HQ, HQ bị phá hủy nhưng Tư lệnh sống sót và lộ diện!
-      const hasCommanderInside = pieces.some(
-        (other) => other.is_alive && other.type === 'COMMANDER' && other.carried_by_id === p.piece_id
-      );
-
-      if (p.type === 'HEADQUARTERS' && hasCommanderInside) {
-        captured = { ...p, is_alive: false };
-        if (actor) {
-          scoreDelta[actor.side] += PIECE_SCORES.HEADQUARTERS;
-        }
-        return { ...p, is_alive: false };
-      }
-
-      captured = { ...p, is_alive: false };
-      let scoreValue = PIECE_SCORES[p.type] || 10;
+      captured = { ...p, is_alive: false, carried_by_id: null };
+      let scoreValue = (PIECE_SCORES[p.type] || 10) + (p.is_hero ? 10 : 0);
       if (p.type === 'COMMANDER') {
-        scoreValue += 50; // Thưởng 50 điểm khi tiêu diệt Tư lệnh
+        scoreValue += 50;
       }
       if (actor) {
         scoreDelta[actor.side] += scoreValue;
       }
-      return { ...p, is_alive: false };
+      return { ...p, is_alive: false, carried_by_id: null };
     }
 
-    // 3. Nếu là Tư lệnh trong Sở chỉ huy bị phá hủy: Tư lệnh sống sót và lộ diện (Q9)
+    // 3 & 4. Quân đang ngồi trên mục tiêu bị tấn công (kể cả lồng nhau)
     if (
       action.target_piece_id &&
-      p.type === 'COMMANDER' &&
-      p.carried_by_id === action.target_piece_id
+      targetDescendants.has(p.piece_id)
     ) {
-      const targetUnit = pieces.find((u) => u.piece_id === action.target_piece_id);
-      if (targetUnit && targetUnit.type === 'HEADQUARTERS') {
-        return { ...p, carried_by_id: null, is_alive: true };
-      }
-    }
-
-    // 4. Nếu là quân trên phương tiện khác bị phá hủy: bị tiêu diệt theo (RULE-TRANSPORT-001)
-    if (action.target_piece_id && p.carried_by_id === action.target_piece_id) {
-      const targetUnit = pieces.find((u) => u.piece_id === action.target_piece_id);
-      if (targetUnit && targetUnit.type !== 'HEADQUARTERS') {
-        const scoreValue = PIECE_SCORES[p.type] || 10;
-        if (actor) {
-          scoreDelta[actor.side] += scoreValue;
+      if (target && target.type === 'HEADQUARTERS') {
+        if (p.carried_by_id === target.piece_id) {
+          return { ...p, carried_by_id: null, is_alive: true, position: { ...target.position } };
         }
-        return { ...p, is_alive: false, carried_by_id: null };
+        return { ...p, position: { ...target.position } };
       }
+      const scoreValue = (PIECE_SCORES[p.type] || 10) + (p.is_hero ? 10 : 0);
+      if (actor) {
+        scoreDelta[actor.side] += scoreValue;
+      }
+      return { ...p, is_alive: false, carried_by_id: null };
     }
 
-    // 5. Nếu là quân thực hiện hành động
+    // 5. Quân thực hiện hành động
     if (p.piece_id === action.piece_id) {
-      // Nếu máy bay thường bay vào vùng cấm bay:
-      // a) Tấn công: 1 ĐỔI 1 (tiêu diệt mục tiêu VÀ máy bay bị diệt)
-      // b) Di chuyển (MOVE): máy bay bị bắn hạ ngay lập tức
       if (isInAaZone) {
         scoreDelta[enemySide] += PIECE_SCORES.AIRCRAFT;
         return {
@@ -1586,7 +1746,6 @@ export function applyMockAction(
       if (action.action_type === 'CAPTURE_STAND') {
         return p;
       }
-      // Nước đi hoặc ăn quân thế chỗ: Cập nhật vị trí mới
       return {
         ...p,
         position: { ...action.to_pos },
@@ -1594,31 +1753,19 @@ export function applyMockAction(
       };
     }
 
-    // 6. Nếu là quân đang được cõng bởi phương tiện di chuyển
-    if (allCarriedIds.includes(p.piece_id) && action.action_type !== 'CAPTURE_STAND') {
-      if (action.carry_cargo === false) {
-        // Phương tiện đi một mình, để lại quân cõng ở vị trí xuất phát!
-        if (p.carried_by_id === action.piece_id) {
-          const otherCarriersAtOrigin = pieces.filter(
-            (other) =>
-              other.is_alive &&
-              other.piece_id !== action.piece_id &&
-              !allCarriedIds.includes(other.piece_id) &&
-              other.position.x === action.from_pos.x &&
-              other.position.y === action.from_pos.y &&
-              (other.type === 'AIRCRAFT' || other.type === 'NAVY' || other.type === 'TANK')
-          );
-          const newCarrier = otherCarriersAtOrigin.find((c) => canBoardCarrier(p, c));
-          return {
-            ...p,
-            position: { ...action.from_pos },
-            carried_by_id: newCarrier ? newCarrier.piece_id : null,
-          };
-        }
+    // 6. Quân đang được cõng bởi phương tiện di chuyển (hoặc chết theo nếu máy bay bị bắn hạ)
+    if (allCarriedSet.has(p.piece_id) && action.action_type !== 'CAPTURE_STAND') {
+      const detached = detachedMap.get(p.piece_id);
+      if (detached) {
         return {
           ...p,
-          position: { ...action.from_pos },
+          carried_by_id: detached.carriedById,
+          position: { ...detached.position },
         };
+      }
+      if (isInAaZone) {
+        scoreDelta[enemySide] += (PIECE_SCORES[p.type] || 10) + (p.is_hero ? 10 : 0);
+        return { ...p, is_alive: false, carried_by_id: null };
       }
       return {
         ...p,
@@ -1629,65 +1776,49 @@ export function applyMockAction(
     return p;
   });
 
-  // Đảm bảo tính nhất quán 2 chiều tuyệt đối giữa carried_by_id và carrying_piece_ids:
-  // Nếu quân được chở rời đi (carried_by_id == null) hoặc bị tiêu diệt (is_alive == false),
-  // quân chở ngay lập tức trở về trạng thái bình thường (xóa sạch ID khỏi carrying_piece_ids, không còn +1/+2)!
-  nextPieces = nextPieces.map((p) => ({
-    ...p,
-    carrying_piece_ids: nextPieces
+  // Đồng bộ 2 chiều và tọa độ quân được chở theo quân gốc
+  nextPieces = nextPieces.map((p) => {
+    const cargo = nextPieces
       .filter((other) => other.is_alive && other.carried_by_id === p.piece_id)
-      .map((other) => other.piece_id),
-  }));
-
-  // =========================================================================
-  // TỰ ĐỘNG PHONG ANH HÙNG (RULE-HERO-001, BUG-HQ-001 & DEC-015):
-  // 1. Quân cuối cùng bảo vệ Tư lệnh (không tính HQ) được phong Anh hùng!
-  // 2. Chỉ khi còn duy nhất 1 Sở chỉ huy và Tư lệnh thì Sở chỉ huy mới được phong Anh hùng!
-  //    Nếu còn 2 Sở chỉ huy thì KHÔNG phong Anh hùng cho Sở chỉ huy nào cả (DEC-015).
-  // =========================================================================
-  for (const side of ['RED', 'BLUE'] as const) {
-    const alivePieces = nextPieces.filter((p) => p.is_alive && p.side === side);
-    const nonCmdNonHq = alivePieces.filter((p) => p.type !== 'COMMANDER' && p.type !== 'HEADQUARTERS');
-    const hqPieces = alivePieces.filter((p) => p.type === 'HEADQUARTERS');
-
-    if (nonCmdNonHq.length === 1 && !nonCmdNonHq[0].is_hero) {
-      // Phong anh hùng cho quân bảo vệ cuối cùng
-      const heroId = nonCmdNonHq[0].piece_id;
-      nextPieces = nextPieces.map((p) => (p.piece_id === heroId ? { ...p, is_hero: true } : p));
-    } else if (nonCmdNonHq.length === 0 && hqPieces.length === 1 && !hqPieces[0].is_hero) {
-      // Chỉ còn duy nhất 1 Sở chỉ huy và Tư lệnh -> Phong HQ thành Bộ binh Anh hùng
-      const heroHqId = hqPieces[0].piece_id;
-      nextPieces = nextPieces.map((p) => (p.piece_id === heroHqId ? { ...p, is_hero: true } : p));
+      .map((other) => other.piece_id);
+    if (p.is_alive && p.carried_by_id != null) {
+      const root = getRootCarrier(p, nextPieces);
+      return { ...p, carrying_piece_ids: cargo, position: { ...root.position } };
     }
-  }
+    return { ...p, carrying_piece_ids: cargo };
+  });
 
   // =========================================================================
-  // 3. PHONG ANH HÙNG KHI CHIẾU TƯ LỆNH ĐỐI PHƯƠNG (RULE-HERO-CHECK):
-  // Khi một quân bất kỳ chiếu được Tư lệnh đối phương, nó sẽ được phong Anh hùng!
+  // TỰ ĐỘNG PHONG ANH HÙNG (RULE-HERO-001, BUG-HQ-001, DEC-015 & Phong trễ HQ)
+  // =========================================================================
+  nextPieces = applyHeroPromotions(nextPieces);
+
+  // =========================================================================
+  // PHONG ANH HÙNG KHI CHIẾU TƯ LỆNH ĐỐI PHƯƠNG (RULE-HERO-CHECK)
   // =========================================================================
   const actorSide = actor ? actor.side : 'RED';
   const enemySideOfActor = actorSide === 'RED' ? 'BLUE' : 'RED';
   const enemyCmd = nextPieces.find(
-    (p) => p.is_alive && p.side === enemySideOfActor && p.type === 'COMMANDER' && !p.carried_by_id
+    (p) => p.is_alive && p.side === enemySideOfActor && p.type === 'COMMANDER'
   );
 
   let actorCheckedCommander = false;
   let actorWasPromoted = false;
 
-  if (enemyCmd) {
+  if (enemyCmd && isCommanderInCheck(nextPieces, enemySideOfActor)) {
+    const cmdOrigin = getRootCarrier(enemyCmd, nextPieces).position;
+    const pieceMapAfter = new Map<string, PieceState>();
+    for (const np of nextPieces) {
+      if (np.is_alive && !np.carried_by_id) {
+        pieceMapAfter.set(`${np.position.x},${np.position.y}`, np);
+      }
+    }
     const checkingPieceIds = new Set<string>();
-    for (const p of nextPieces) {
-      if (p.is_alive && p.side === actorSide && !p.carried_by_id && p.type !== 'COMMANDER') {
-        const candidateMoves = getMockLegalActions(p, nextPieces, false);
-        const canHitCmd = candidateMoves.some(
-          (m) =>
-            (m.action_type === 'CAPTURE_REPLACE' || m.action_type === 'CAPTURE_STAND') &&
-            (m.target_piece_id === enemyCmd.piece_id ||
-              (m.to_pos.x === enemyCmd.position.x && m.to_pos.y === enemyCmd.position.y))
-        );
-        if (canHitCmd) {
-          checkingPieceIds.add(p.piece_id);
-          if (p.piece_id === action.piece_id) {
+    for (const np of nextPieces) {
+      if (np.is_alive && np.side === actorSide && np.type !== 'COMMANDER') {
+        if (pieceThreatensSquare(nextPieces, np, cmdOrigin.x, cmdOrigin.y, pieceMapAfter)) {
+          checkingPieceIds.add(np.piece_id);
+          if (np.piece_id === action.piece_id) {
             actorCheckedCommander = true;
           }
         }
@@ -1696,7 +1827,7 @@ export function applyMockAction(
 
     if (checkingPieceIds.size > 0) {
       nextPieces = nextPieces.map((p) => {
-        if (checkingPieceIds.has(p.piece_id)) {
+        if (checkingPieceIds.has(p.piece_id) && p.type !== 'COMMANDER') {
           if (!p.is_hero && p.piece_id === action.piece_id) {
             actorWasPromoted = true;
           }
@@ -1727,7 +1858,7 @@ export function applyMockAction(
 
   if (isInAaZone && isActorAircraft && actor) {
     const actorSym = PIECE_NOTATION_SYMBOL[actor.type] || 'K';
-    const fromNot = formatCoordinateNotation(actor.position);
+    const fromNot = formatCoordinateNotation(actorOrigin);
     const toNot = formatCoordinateNotation(action.to_pos);
 
     if (captured || action.target_piece_id) {
@@ -1743,27 +1874,19 @@ export function applyMockAction(
   }
 
   // =========================================================================
-  // CHIẾU HẾT TƯ LỆNH ĐỐI PHƯƠNG (CHECKMATE - DEC-019)
-  // Khi Tư lệnh đối phương bị chiếu và toàn bộ các quân phe đó không còn nước đi hợp lệ
+  // CHIẾU HẾT TƯ LỆNH (CHECKMATE) & HÒA CỜ BÍ (STALEMATE - DEC-020)
   // =========================================================================
-  const isEnemyInCheck = isCommanderInCheck(nextPieces, enemySideOfActor);
-  let isCheckmate = false;
   const deadTarget = (captured as PieceState | null) || deadPieceForRecord;
+  let isEnemyInCheck = isCommanderInCheck(nextPieces, enemySideOfActor);
+  let isCheckmate = false;
+  let isStalemate = false;
 
-  if (isEnemyInCheck && !(deadTarget && deadTarget.type === 'COMMANDER')) {
-    const enemyActivePieces = nextPieces.filter(
-      (p) => p.is_alive && p.side === enemySideOfActor && !p.carried_by_id
-    );
-    let enemyHasLegalMove = false;
-    for (const ep of enemyActivePieces) {
-      const epMoves = getMockLegalActions(ep, nextPieces, true);
-      if (epMoves.length > 0) {
-        enemyHasLegalMove = true;
-        break;
-      }
-    }
-    if (!enemyHasLegalMove) {
-      isCheckmate = true;
+  if (evaluateTurnEnd && !(deadTarget && deadTarget.type === 'COMMANDER')) {
+    const outcome = evaluateTurnHandoffOutcome(nextPieces, enemySideOfActor);
+    isEnemyInCheck = outcome.isEnemyInCheck;
+    isCheckmate = outcome.isCheckmate;
+    isStalemate = outcome.isStalemate;
+    if (isCheckmate) {
       scoreDelta[actorSide] += 50;
       if (!notation.includes('#')) {
         notation = `${notation} #`;
@@ -1782,6 +1905,7 @@ export function applyMockAction(
       action_type: action.action_type,
       is_check: actorCheckedCommander || isEnemyInCheck,
       is_checkmate: isCheckmate,
+      is_stalemate: isStalemate,
       hero_promoted: actorWasPromoted,
     },
   };
@@ -1794,59 +1918,94 @@ export function applyMockAction(
 }
 
 /**
- * Lựa chọn nước đi thông minh và an toàn cho tác tử AI (DEC-019 & AI-KING-SAFETY):
- * 1. Khi Tư lệnh KHÔNG bị chiếu:
- *    - Ưu tiên 100% các quân tác chiến hoặc trú ẩn vào Sở chỉ huy.
- *    - Tuyệt đối không chọn nước đi của Tư lệnh lang thang ra ngoài bàn cờ cho đối phương ăn.
- *    - Nếu toàn bộ quân khác hết nước đi, Tư lệnh chỉ được đi vào ô hoàn toàn an toàn mà đối phương không thể ăn được!
- * 2. Khi Tư lệnh ĐANG BỊ CHIẾU:
- *    - Bắt buộc chọn nước đi hóa giải chiếu:
- *      a) Dùng quân khác chặn đường chiếu (nếu quân đối phương chiếu từ xa và đường chiếu có thể bị chặn).
- *      b) Dùng quân khác hoặc chính Tư lệnh ăn quân địch đang chiếu.
- *      c) Chạy Tư lệnh sang ô an toàn không bị đối phương ăn.
- *      d) Đưa Tư lệnh trú ẩn vào Sở chỉ huy.
+ * Lựa chọn nước đi hợp lệ và an toàn cho tác tử AI (DEC-019, DEC-020 & Tổ hợp cõng quân):
+ * - Thu thập toàn bộ nước đi hợp lệ ở trạng thái hiện tại, bao gồm cả quân đang được cõng,
+ *   cả lựa chọn cõng quân đi cùng lẫn tách lẻ bỏ lại quân (carry_cargo = true/false),
+ *   và các nước đi tiếp theo / END_TURN khi đang ở lượt tổ hợp STACK_ACTIVE.
+ * - Tuyệt đối không fallback sang nước đi tự sát / lộ Tư lệnh cho đối phương ăn.
  */
 export function selectSmartAiAction(
   pieces: PieceState[],
-  side: 'RED' | 'BLUE'
+  side: 'RED' | 'BLUE',
+  activeCompound: ActiveCompoundState | null = null
 ): LegalAction | null {
-  const activePieces = pieces.filter((p) => p.side === side && p.is_alive && !p.carried_by_id);
-  const allActions: LegalAction[] = [];
-  for (const ap of activePieces) {
-    allActions.push(...getMockLegalActions(ap, pieces, true));
+  const allAliveSide = pieces.filter((p) => p.side === side && p.is_alive);
+  let candidatePoolPieces = allAliveSide;
+
+  if (activeCompound) {
+    candidatePoolPieces = allAliveSide.filter(
+      (p) =>
+        activeCompound.memberIds.includes(p.piece_id) &&
+        !activeCompound.movedPieceIds.includes(p.piece_id) &&
+        p.position.x === activeCompound.originPos.x &&
+        p.position.y === activeCompound.originPos.y
+    );
   }
-  if (allActions.length === 0) return null;
+
+  const allActions: LegalAction[] = [];
+  const seenKeys = new Set<string>();
+  const addUniqueActions = (list: LegalAction[]) => {
+    for (const act of list) {
+      const key = `${act.action_type}|${act.piece_id}|${act.to_pos.x},${act.to_pos.y}|${act.target_piece_id || ''}|${act.carry_cargo ?? true}`;
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        allActions.push(act);
+      }
+    }
+  };
+
+  for (const ap of candidatePoolPieces) {
+    addUniqueActions(getMockLegalActions(ap, pieces, true));
+    if (
+      ap.carried_by_id == null &&
+      ap.type !== 'HEADQUARTERS' &&
+      ap.carrying_piece_ids &&
+      ap.carrying_piece_ids.length > 0 &&
+      canCarrierLeaveCargoBehind(ap, pieces)
+    ) {
+      addUniqueActions(getMockLegalActions(ap, pieces, false));
+    }
+  }
 
   const cmd = pieces.find((p) => p.is_alive && p.side === side && p.type === 'COMMANDER');
-  const enemySide = side === 'RED' ? 'BLUE' : 'RED';
 
-  // 1. Lọc an toàn tuyệt đối: Không để Tư lệnh bị chiếu sau nước đi,
-  // và nếu Tư lệnh di chuyển thì ô đến tuyệt đối không bị đối phương ăn!
   const safeActions: LegalAction[] = [];
   for (const act of allActions) {
     const sim = simulateAction(act, pieces);
-    if (isCommanderInCheck(sim, side)) continue;
-    if (cmd && act.piece_id === cmd.piece_id && act.action_type !== 'BOARD') {
-      if (isSquareAttackedByEnemy(sim, act.to_pos.x, act.to_pos.y, enemySide)) {
-        continue;
-      }
-    }
+    if (cmd && !sim.some((p) => p.is_alive && p.piece_id === cmd.piece_id)) continue;
+    if (isCommandersFacing(sim) || isCommanderInCheck(sim, side)) continue;
     safeActions.push(act);
   }
 
-  const pool = safeActions.length > 0 ? safeActions : allActions;
+  if (activeCompound) {
+    const stackPool: LegalAction[] = [...safeActions];
+    if (!isCommandersFacing(pieces) && !isCommanderInCheck(pieces, side)) {
+      stackPool.push({
+        action_id: `end_turn_${side}_${Date.now()}`,
+        action_type: 'END_TURN',
+        piece_id: candidatePoolPieces[0]?.piece_id || activeCompound.memberIds[0] || 'COMPOUND',
+        from_pos: { ...activeCompound.originPos },
+        to_pos: { ...activeCompound.originPos },
+        target_piece_id: null,
+        notation: 'CONFIRM_DEPLOYMENT',
+        description: 'Hoàn tất lượt tổ hợp',
+        carry_cargo: true,
+      });
+    }
+    if (stackPool.length === 0) return null;
+    return stackPool[Math.floor(Math.random() * stackPool.length)];
+  }
+
+  if (safeActions.length === 0) return null;
+
   const isInCheck = isCommanderInCheck(pieces, side);
 
   if (isInCheck) {
-    // TÌNH HUỐNG 1: ĐANG BỊ CHIẾU
-    // a) Dùng quân khác chặn đường chiếu hoặc ăn quân đang chiếu
-    const blockingOrCapturing = pool.filter((a) => cmd && a.piece_id !== cmd.piece_id);
-    // b) Tư lệnh trú ẩn vào Sở chỉ huy
-    const shelterActions = pool.filter(
+    const blockingOrCapturing = safeActions.filter((a) => !cmd || a.piece_id !== cmd.piece_id);
+    const shelterActions = safeActions.filter(
       (a) => cmd && a.piece_id === cmd.piece_id && a.action_type === 'BOARD'
     );
-    // c) Tư lệnh chạy sang ô an toàn (không bị ăn)
-    const cmdEscapeActions = pool.filter(
+    const cmdEscapeActions = safeActions.filter(
       (a) => cmd && a.piece_id === cmd.piece_id && a.action_type !== 'BOARD'
     );
 
@@ -1857,22 +2016,18 @@ export function selectSmartAiAction(
       return shelterActions[Math.floor(Math.random() * shelterActions.length)];
     } else if (cmdEscapeActions.length > 0) {
       return cmdEscapeActions[Math.floor(Math.random() * cmdEscapeActions.length)];
-    } else {
-      return pool[Math.floor(Math.random() * pool.length)];
     }
+    return safeActions[Math.floor(Math.random() * safeActions.length)];
   } else {
-    // TÌNH HUỐNG 2: KHÔNG BỊ CHIẾU
-    // Ưu tiên các quân tác chiến hoặc trú ẩn, tuyệt đối không đi Tư lệnh lang thang cho đối phương ăn
-    const tacticalActions = pool.filter((a) => cmd && a.piece_id !== cmd.piece_id);
-    const shelterActions = pool.filter(
+    const tacticalActions = safeActions.filter((a) => !cmd || a.piece_id !== cmd.piece_id);
+    const shelterActions = safeActions.filter(
       (a) => cmd && a.piece_id === cmd.piece_id && a.action_type === 'BOARD'
     );
 
     if (tacticalActions.length > 0) {
       const preferred = [...tacticalActions, ...shelterActions];
       return preferred[Math.floor(Math.random() * preferred.length)];
-    } else {
-      return pool[Math.floor(Math.random() * pool.length)];
     }
+    return safeActions[Math.floor(Math.random() * safeActions.length)];
   }
 }

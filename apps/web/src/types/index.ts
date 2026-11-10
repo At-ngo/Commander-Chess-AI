@@ -96,6 +96,7 @@ export interface MoveRecord {
 
 export type TerminationReason =
   | 'CHECKMATE'
+  | 'STALEMATE'
   | 'COMMANDER_CAPTURED'
   | 'TIMEOUT'
   | 'RESIGNATION'
@@ -127,6 +128,9 @@ export interface GameStateDTO {
   pieces: PieceState[];
   legal_actions: LegalAction[];
   can_end_turn: boolean;
+  compound_origin?: Position | null;
+  compound_member_ids?: string[];
+  compound_moved_piece_ids?: string[];
   last_event?: GameEvent | null;
   result?: {
     winner?: string | null;

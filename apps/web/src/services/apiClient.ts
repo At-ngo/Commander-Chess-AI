@@ -107,6 +107,7 @@ export const apiClient = {
       target_piece_id?: string | null;
       state_version: number;
       is_compound_action?: boolean;
+      carry_cargo?: boolean;
     }
   ): Promise<ActionResponseDTO> {
     return request(`/games/${gameId}/actions`, {

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { PieceState, LegalAction, MoveRecord, ActiveCompoundState } from '../../types';
 import { boardToSvgPoint, formatCoordinateNotation, BOARD_GEOMETRY } from '../../utils/coordinates';
 import { getPieceImageUrl, PIECE_VIETNAMESE_NAMES } from '../../utils/assets';
-import { getAirDefenseZones, canCarrierLeaveCargoBehind } from '../../services/mockGameService';
+import { getAirDefenseZones, canCarrierLeaveCargoBehind, getRootCarrier, getAllCarriedPieceIds } from '../../services/mockGameService';
 import styles from './Board.module.css';
 
 interface BoardProps {
@@ -50,35 +50,37 @@ export const Board: React.FC<BoardProps> = ({
     return canCarrierLeaveCargoBehind(selectedPiece, pieces);
   }, [selectedPiece, isSelectedCarrierWithCargo, pieces]);
 
-  // Check if selected piece belongs to a compound (carrier or passenger)
+  // Check if selected piece belongs to a compound (carrier or passenger, including 3-level nesting)
   const compoundCarrier = useMemo(() => {
     if (activeCompound) {
-      const members = pieces.filter((p) => activeCompound.memberIds.includes(p.piece_id));
+      const members = pieces.filter((p) => p.is_alive && activeCompound.memberIds.includes(p.piece_id));
       const root = members.find((p) => !p.carried_by_id) || members[0];
       return root || null;
     }
     if (!selectedPiece) return null;
-    if (selectedPiece.carried_by_id) {
-      return pieces.find((p) => p.piece_id === selectedPiece.carried_by_id) || null;
-    }
-    const hasActivePassengers = pieces.some(
-      (p) => p.is_alive && p.carried_by_id === selectedPiece.piece_id
-    );
-    if (hasActivePassengers) {
-      return selectedPiece;
+    const root = getRootCarrier(selectedPiece, pieces);
+    const hasActivePassengers = getAllCarriedPieceIds(root.piece_id, pieces).length > 0;
+    if (selectedPiece.carried_by_id || hasActivePassengers) {
+      return root;
     }
     return null;
   }, [selectedPiece, pieces, activeCompound]);
 
   const displayedCompoundMembers = useMemo(() => {
     if (activeCompound) {
-      return pieces.filter((p) => activeCompound.memberIds.includes(p.piece_id));
+      const members = pieces.filter((p) => p.is_alive && activeCompound.memberIds.includes(p.piece_id));
+      return members.sort((a, b) => {
+        if (!a.carried_by_id && b.carried_by_id) return -1;
+        if (a.carried_by_id && !b.carried_by_id) return 1;
+        return 0;
+      });
     }
     if (!compoundCarrier) return [];
-    const passengers = pieces.filter(
-      (p) => p.is_alive && p.carried_by_id === compoundCarrier.piece_id
-    );
-    if (passengers.length === 0) return [];
+    const nestedIds = getAllCarriedPieceIds(compoundCarrier.piece_id, pieces);
+    if (nestedIds.length === 0) return [];
+    const passengers = nestedIds
+      .map((id) => pieces.find((p) => p.is_alive && p.piece_id === id))
+      .filter((p): p is PieceState => Boolean(p));
     return [compoundCarrier, ...passengers];
   }, [activeCompound, compoundCarrier, pieces]);
 
@@ -384,9 +386,9 @@ export const Board: React.FC<BoardProps> = ({
               className={`${styles.pieceGroup} ${isBlockedByActiveCompound ? styles.pieceGroupBlocked : ''}`}
               onClick={() => {
                 if (isBlockedByActiveCompound) return;
-                // Ở sở chỉ huy, sở chỉ huy không thể di chuyển nên nếu có Tư lệnh trong đó,
+                // Ở sở chỉ huy thường (chưa phong Anh hùng), sở chỉ huy không thể di chuyển nên nếu có Tư lệnh trong đó,
                 // click vào sẽ tự động chọn Tư lệnh để di chuyển ra ngoài!
-                if (piece.type === 'HEADQUARTERS') {
+                if (piece.type === 'HEADQUARTERS' && !piece.is_hero) {
                   const cmdInside = pieces.find(
                     (p) =>
                       p.is_alive &&
@@ -446,9 +448,7 @@ export const Board: React.FC<BoardProps> = ({
 
               {/* Passenger Badge if carrier unit has passengers on board */}
               {(() => {
-                const passengerCount = pieces.filter(
-                  (p) => p.is_alive && p.carried_by_id === piece.piece_id
-                ).length;
+                const passengerCount = getAllCarriedPieceIds(piece.piece_id, pieces).length;
                 if (passengerCount === 0) return null;
                 return (
                   <g className={styles.passengerBadge} transform="translate(18, 18)">
@@ -671,7 +671,7 @@ export const Board: React.FC<BoardProps> = ({
                 </button>
               );
             })}
-            {onConfirmCompound && (
+            {activeCompound && onConfirmCompound && (
               <button
                 type="button"
                 className={styles.compoundConfirmBtn}

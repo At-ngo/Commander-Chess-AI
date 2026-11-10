@@ -7,12 +7,105 @@ import { MoveHistory } from './components/MoveHistory/MoveHistory';
 import { CapturedPieces } from './components/CapturedPieces/CapturedPieces';
 import { GameOverModal } from './components/GameOverModal/GameOverModal';
 import { ConfirmModal } from './components/ConfirmModal/ConfirmModal';
-import { PieceState, Side, LegalAction, MoveRecord, GameStatus, GameResult, GameMode, ActiveCompoundState } from './types';
+import {
+  PieceState,
+  Side,
+  LegalAction,
+  MoveRecord,
+  GameStatus,
+  GameResult,
+  GameMode,
+  ActiveCompoundState,
+  GameStateDTO,
+  ActionType,
+  TerminationReason,
+} from './types';
 import { getInitialPieces } from './utils/initialBoard';
-import { getMockLegalActions, applyMockAction, getAllCarriedPieceIds, selectSmartAiAction } from './services/mockGameService';
-import { apiClient } from './services/apiClient';
+import {
+  getMockLegalActions,
+  applyMockAction,
+  getAllCarriedPieceIds,
+  selectSmartAiAction,
+  getRootCarrier,
+  delayedSolitaryHqCommanderId,
+  evaluateTurnHandoffOutcome,
+} from './services/mockGameService';
+import { apiClient, ApiError } from './services/apiClient';
 import { Language, translations } from './i18n';
 import styles from './App.module.css';
+
+function normalizePieces(raw: PieceState[]): PieceState[] {
+  const posFixed = raw.map((p) => {
+    if (p.is_alive && p.carried_by_id) {
+      const root = getRootCarrier(p, raw);
+      return { ...p, position: { ...root.position } };
+    }
+    return p;
+  });
+  return posFixed.map((p) => ({
+    ...p,
+    carrying_piece_ids: posFixed
+      .filter((other) => other.is_alive && other.carried_by_id === p.piece_id)
+      .map((other) => other.piece_id),
+  }));
+}
+
+function extractCompoundState(
+  gs: GameStateDTO,
+  normalizedPieces: PieceState[]
+): ActiveCompoundState | null {
+  if (gs.turn_phase !== 'STACK_ACTIVE') return null;
+  const originPos = gs.compound_origin ? { ...gs.compound_origin } : { x: 0, y: 0 };
+  const memberIds =
+    gs.compound_member_ids && gs.compound_member_ids.length > 0
+      ? [...gs.compound_member_ids]
+      : normalizedPieces
+          .filter(
+            (p) =>
+              p.is_alive &&
+              p.side === gs.side_to_move &&
+              p.position.x === originPos.x &&
+              p.position.y === originPos.y
+          )
+          .map((p) => p.piece_id);
+  const movedPieceIds = gs.compound_moved_piece_ids ? [...gs.compound_moved_piece_ids] : [];
+  return {
+    originPos,
+    memberIds,
+    movedPieceIds,
+    actionCount: movedPieceIds.length,
+  };
+}
+
+function buildGameResultFromDTO(
+  gs: GameStateDTO,
+  nextMoves: MoveRecord[],
+  durationSeconds: number,
+  fallbackScores: { RED: number; BLUE: number },
+  fallbackWinnerSide: Side
+): GameResult {
+  const rawWinner = gs.result?.winner;
+  const winnerValue: Side | 'DRAW' =
+    rawWinner === 'RED' || rawWinner === 'BLUE' || rawWinner === 'DRAW'
+      ? rawWinner
+      : fallbackWinnerSide;
+  const reasonValue: TerminationReason =
+    gs.result?.reason || (winnerValue === 'DRAW' ? 'STALEMATE' : 'CHECKMATE');
+  return {
+    winner: winnerValue,
+    reason: reasonValue,
+    final_scores: gs.result?.final_scores || gs.scores || fallbackScores,
+    total_turns: Math.max(1, Math.ceil(nextMoves.length / 2)),
+    total_moves: nextMoves.length,
+    duration_seconds: durationSeconds,
+    captured_commander_side:
+      reasonValue === 'COMMANDER_CAPTURED' && winnerValue !== 'DRAW'
+        ? winnerValue === 'BLUE'
+          ? 'RED'
+          : 'BLUE'
+        : null,
+  };
+}
 
 export const App: React.FC = () => {
   // Language Preference with LocalStorage persistence
@@ -73,6 +166,9 @@ export const App: React.FC = () => {
           if (isMounted) {
             setGameSessionId(session.game_id);
             syncStateVersion(session.state_version);
+            if (session.pieces && session.pieces.length > 0) {
+              setPieces(normalizePieces(session.pieces));
+            }
           }
         }
       } catch {
@@ -108,6 +204,11 @@ export const App: React.FC = () => {
   const legalActions = useMemo(() => {
     if (status === 'GAME_OVER' || isAiThinking) return [];
     if (!selectedPiece || selectedPiece.side !== sideToMove) return [];
+    // Quy tắc phong Anh hùng trễ: nếu phe chỉ còn 1 Sở chỉ huy + Tư lệnh đang núp bên trong, bắt buộc Tư lệnh thoát ra trước
+    const trapCmdId = delayedSolitaryHqCommanderId(pieces, sideToMove);
+    if (trapCmdId !== null && selectedPiece.piece_id !== trapCmdId) {
+      return [];
+    }
     // Nếu đang trong lượt tác chiến của tổ hợp và quân này đã đi rồi -> không còn nước đi
     if (activeCompound && activeCompound.movedPieceIds.includes(selectedPiece.piece_id)) {
       return [];
@@ -134,9 +235,9 @@ export const App: React.FC = () => {
       }
     }
 
-    // Ở sở chỉ huy, sở chỉ huy không thể di chuyển nên nếu có Tư lệnh trong đó,
+    // Ở sở chỉ huy thường (chưa phong Anh hùng), sở chỉ huy không thể di chuyển nên nếu có Tư lệnh trong đó,
     // click vào sẽ tự động chọn Tư lệnh để di chuyển ra ngoài!
-    if (piece.type === 'HEADQUARTERS') {
+    if (piece.type === 'HEADQUARTERS' && !piece.is_hero) {
       const carriedCommander = pieces.find(
         (p) => p.is_alive && p.carried_by_id === piece.piece_id && p.type === 'COMMANDER'
       );
@@ -161,16 +262,103 @@ export const App: React.FC = () => {
   };
 
   const handleConfirmCompound = async () => {
+    const currentSide = sideToMove;
+    const nextSideFallback: Side = currentSide === 'RED' ? 'BLUE' : 'RED';
+    const compoundSnapshot = activeCompound;
+    const currentPieces = piecesRef.current;
+
     setSelectedPieceId(null);
     setActiveCompound(null);
     setCarryCargoWithMovement(true);
 
-    const confirmAction: LegalAction = {
+    // Đồng bộ kết thúc lượt tổ hợp sang FastAPI backend (nếu online)
+    if (backendOnline && gameSessionId) {
+      try {
+        const gs = await apiClient.endTurn(gameSessionId, stateVersionRef.current);
+        syncStateVersion(gs.state_version);
+        const nextNormalized =
+          gs.pieces && gs.pieces.length > 0 ? normalizePieces(gs.pieces) : currentPieces;
+        setPieces(nextNormalized);
+        if (gs.scores) {
+          setScores({ RED: gs.scores.RED, BLUE: gs.scores.BLUE });
+        }
+        const notation = gs.last_event?.notation || 'CONFIRM_DEPLOYMENT';
+        const confirmAction: LegalAction = {
+          action_id: `confirm_${Date.now()}`,
+          action_type: 'END_TURN',
+          piece_id: 'COMPOUND',
+          from_pos: compoundSnapshot?.originPos || { x: 0, y: 0 },
+          to_pos: compoundSnapshot?.originPos || { x: 0, y: 0 },
+          target_piece_id: null,
+          notation,
+          description:
+            lang === 'vi'
+              ? 'Đã xác nhận hoàn tất lượt tác chiến của tổ hợp.'
+              : 'Compound deployment turn completed.',
+        };
+        const nextMoves: MoveRecord[] = [
+          ...moves,
+          {
+            move_number: moves.length + 1,
+            side: currentSide,
+            action: confirmAction,
+            notation,
+            captured_piece_type: null,
+            timestamp: Date.now(),
+          },
+        ];
+        setMoves(nextMoves);
+
+        if (gs.status === 'GAME_OVER') {
+          setStatus('GAME_OVER');
+          setGameResult(
+            buildGameResultFromDTO(gs, nextMoves, matchSeconds, gs.scores || scores, currentSide)
+          );
+          setIsGameOverModalOpen(true);
+          return;
+        }
+
+        setActiveCompound(extractCompoundState(gs, nextNormalized));
+        setSideToMove(gs.side_to_move);
+        return;
+      } catch (err) {
+        console.warn('Backend endTurn failed:', err);
+        if (err instanceof ApiError) {
+          try {
+            const fresh = await apiClient.getGame(gameSessionId);
+            syncStateVersion(fresh.state_version);
+            const freshNormalized = normalizePieces(fresh.pieces);
+            setPieces(freshNormalized);
+            setScores({ RED: fresh.scores.RED, BLUE: fresh.scores.BLUE });
+            setActiveCompound(extractCompoundState(fresh, freshNormalized));
+            setSideToMove(fresh.side_to_move);
+            if (fresh.status === 'GAME_OVER') {
+              setStatus('GAME_OVER');
+              setGameResult(buildGameResultFromDTO(fresh, moves, matchSeconds, scores, currentSide));
+              setIsGameOverModalOpen(true);
+            }
+            return;
+          } catch {
+            // Fall through to local handling if getGame also fails
+          }
+        } else {
+          setBackendOnline(false);
+        }
+      }
+    }
+
+    const endTurnActorId =
+      compoundSnapshot?.memberIds.find((id) =>
+        currentPieces.some((p) => p.is_alive && p.piece_id === id)
+      ) ||
+      currentPieces.find((p) => p.is_alive && p.side === currentSide)?.piece_id ||
+      'COMPOUND';
+    const endTurnAction: LegalAction = {
       action_id: `confirm_${Date.now()}`,
-      action_type: 'MOVE',
-      piece_id: 'COMPOUND',
-      from_pos: { x: 0, y: 0 },
-      to_pos: { x: 0, y: 0 },
+      action_type: 'END_TURN',
+      piece_id: endTurnActorId,
+      from_pos: compoundSnapshot?.originPos || { x: 0, y: 0 },
+      to_pos: compoundSnapshot?.originPos || { x: 0, y: 0 },
       target_piece_id: null,
       notation: 'CONFIRM_DEPLOYMENT',
       description:
@@ -178,57 +366,76 @@ export const App: React.FC = () => {
           ? 'Đã xác nhận hoàn tất lượt tác chiến của tổ hợp.'
           : 'Compound deployment turn completed.',
     };
-    setMoves((prev) => [
-      ...prev,
+    const { event } = applyMockAction(endTurnAction, currentPieces, true);
+    const finalScores = {
+      RED: scores.RED + event.score_delta.RED,
+      BLUE: scores.BLUE + event.score_delta.BLUE,
+    };
+    if (event.score_delta.RED > 0 || event.score_delta.BLUE > 0) {
+      setScores(finalScores);
+    }
+    const nextMoves: MoveRecord[] = [
+      ...moves,
       {
-        move_number: prev.length + 1,
-        side: sideToMove,
-        action: confirmAction,
-        notation: 'CONFIRM_DEPLOYMENT',
+        move_number: moves.length + 1,
+        side: currentSide,
+        action: endTurnAction,
+        notation: event.notation || 'CONFIRM_DEPLOYMENT',
         captured_piece_type: null,
         timestamp: Date.now(),
       },
-    ]);
+    ];
+    setMoves(nextMoves);
 
-    // Đồng bộ kết thúc lượt tổ hợp sang FastAPI backend (nếu online)
-    if (backendOnline && gameSessionId) {
-      try {
-        const res = await apiClient.endTurn(gameSessionId, stateVersionRef.current);
-        syncStateVersion(res.state_version);
-      } catch (err) {
-        console.warn('Backend endTurn failed:', err);
-      }
+    if (event.details?.is_checkmate || event.details?.is_stalemate) {
+      const isStale = Boolean(event.details?.is_stalemate);
+      setStatus('GAME_OVER');
+      setGameResult({
+        winner: isStale ? 'DRAW' : currentSide,
+        reason: isStale ? 'STALEMATE' : 'CHECKMATE',
+        final_scores: finalScores,
+        total_turns: Math.ceil(nextMoves.length / 2),
+        total_moves: nextMoves.length,
+        duration_seconds: matchSeconds,
+        captured_commander_side: null,
+      });
+      setIsGameOverModalOpen(true);
+      return;
     }
 
-    // Kết thúc lượt tổ hợp: chuyển lượt ngay lập tức sang phe đối diện!
-    setSideToMove((prev) => (prev === 'RED' ? 'BLUE' : 'RED'));
+    setSideToMove(nextSideFallback);
   };
 
   const triggerAiStep = async () => {
     if (status === 'GAME_OVER' || isAiThinking) return;
     setIsAiThinking(true);
+    const actingSide = sideToMove;
 
     try {
       if (backendOnline && gameSessionId) {
+        const prevPieces = piecesRef.current;
         const aiRes = await apiClient.aiStep(gameSessionId);
         syncStateVersion(aiRes.state_version);
 
-        // PHÒNG THỦ TUYỆT ĐỐI: Kiểm tra quân thực hiện nước đi của AI (chỉ chấp nhận quân BLUE)
-        if (aiRes.event.actor_id) {
-          const actorPiece = piecesRef.current.find((p) => p.piece_id === aiRes.event.actor_id);
-          if (actorPiece && actorPiece.side === 'RED') {
-            console.error('LỖI AN TOÀN: Backend AI trả về quân của người chơi (RED)! Từ chối thực thi nước đi này.');
+        // PHÒNG THỦ TUYỆT ĐỐI: Kiểm tra quân thực hiện nước đi của AI
+        if (aiRes.event.actor_id && aiRes.event.actor_id !== 'COMPOUND') {
+          const actorPiece = prevPieces.find((p) => p.piece_id === aiRes.event.actor_id);
+          if (actorPiece && actorPiece.side !== actingSide) {
+            console.error('LỖI AN TOÀN: Backend AI trả về quân không thuộc lượt hiện tại! Từ chối thực thi nước đi này.');
             return;
           }
         }
 
-        let deadPiece: PieceState | null = null;
-        if (aiRes.event.target_id) {
-          deadPiece = piecesRef.current.find((p) => p.piece_id === aiRes.event.target_id) || null;
-          if (deadPiece) {
-            setCapturedPieces((prev) => [...prev, deadPiece!]);
-          }
+        const nextNormalized =
+          aiRes.game_state.pieces && aiRes.game_state.pieces.length > 0
+            ? normalizePieces(aiRes.game_state.pieces)
+            : prevPieces;
+        const prevDeadIds = new Set(prevPieces.filter((p) => !p.is_alive).map((p) => p.piece_id));
+        const newlyDead = nextNormalized.filter((p) => !p.is_alive && !prevDeadIds.has(p.piece_id));
+        if (newlyDead.length > 0) {
+          setCapturedPieces((prev) => [...prev, ...newlyDead]);
         }
+        setPieces(nextNormalized);
 
         if (aiRes.game_state.scores) {
           setScores({
@@ -237,101 +444,102 @@ export const App: React.FC = () => {
           });
         }
 
-        if (aiRes.game_state.pieces) {
-          const reconciledPieces = aiRes.game_state.pieces.map((rp) => {
-            const localPiece = piecesRef.current.find((lp) => lp.piece_id === rp.piece_id);
-            if (!localPiece) return rp;
-            if (!localPiece.is_alive) {
-              return { ...rp, is_alive: false };
-            }
-            if (aiRes.event.target_id === rp.piece_id) {
-              return { ...rp, is_alive: false };
-            }
-            // Bảo vệ quân của người chơi (RED) tuyệt đối không bị đè toạ độ cũ từ AI response
-            if (localPiece.side === 'RED') {
-              return {
-                ...rp,
-                position: { ...localPiece.position },
-                carried_by_id: localPiece.carried_by_id,
-                is_hero: localPiece.is_hero || rp.is_hero,
-              };
-            }
-            return {
-              ...rp,
-              is_hero: localPiece.is_hero || rp.is_hero,
-            };
-          });
-          const newlyDeadAi = reconciledPieces.filter(
-            (np) => !np.is_alive && piecesRef.current.find((p) => p.piece_id === np.piece_id && p.is_alive)
-          );
-          if (newlyDeadAi.length > 0) {
-            setCapturedPieces((prev) => [...prev, ...newlyDeadAi]);
-          }
-          // Bảo đảm tính nhất quán 2 chiều tuyệt đối giữa carried_by_id và carrying_piece_ids
-          const consistentPieces = reconciledPieces.map((p) => ({
-            ...p,
-            carrying_piece_ids: reconciledPieces
-              .filter((other) => other.is_alive && other.carried_by_id === p.piece_id)
-              .map((other) => other.piece_id),
-          }));
-          setPieces(consistentPieces);
-        }
-
-        const actorBefore = piecesRef.current.find((p) => p.piece_id === aiRes.event.actor_id);
-        const fromPos = actorBefore
+        const targetPiece = aiRes.event.target_id
+          ? prevPieces.find((p) => p.piece_id === aiRes.event.target_id) || null
+          : null;
+        const actorBefore = prevPieces.find((p) => p.piece_id === aiRes.event.actor_id);
+        const fromPos = aiRes.event.details?.from_pos
+          ? { ...aiRes.event.details.from_pos }
+          : actorBefore
           ? { ...actorBefore.position }
-          : (aiRes.event.details?.from_pos || { x: 0, y: 0 });
+          : { x: 0, y: 0 };
         const toPos = aiRes.event.details?.to_pos
           ? { ...aiRes.event.details.to_pos }
           : (() => {
-              const actorAfter = aiRes.game_state?.pieces?.find((p) => p.piece_id === aiRes.event.actor_id);
+              const actorAfter = nextNormalized.find((p) => p.piece_id === aiRes.event.actor_id);
               return actorAfter ? { ...actorAfter.position } : fromPos;
             })();
+        const rawActionType = aiRes.event.details?.action_type as ActionType | undefined;
+        const resolvedActionType: ActionType =
+          rawActionType ||
+          (aiRes.event.actor_id === 'COMPOUND'
+            ? 'END_TURN'
+            : aiRes.event.event_type === 'PIECE_CAPTURED'
+            ? 'CAPTURE_REPLACE'
+            : 'MOVE');
 
         const newRecord: MoveRecord = {
           move_number: moves.length + 1,
-          side: sideToMove,
+          side: actingSide,
           action: {
             action_id: `ai_${Date.now()}`,
-            action_type: aiRes.event.event_type === 'PIECE_CAPTURED' ? 'CAPTURE_REPLACE' : 'MOVE',
+            action_type: resolvedActionType,
             piece_id: aiRes.event.actor_id || '',
             from_pos: fromPos,
             to_pos: toPos,
+            target_piece_id: aiRes.event.target_id || null,
             notation: aiRes.event.notation,
             description: 'Nước đi của Random Agent',
           },
           notation: aiRes.event.notation,
-          captured_piece_type: deadPiece ? deadPiece.type : null,
+          captured_piece_type:
+            targetPiece && !nextNormalized.some((p) => p.is_alive && p.piece_id === targetPiece.piece_id)
+              ? targetPiece.type
+              : null,
           timestamp: Date.now(),
         };
         const nextMoves = [...moves, newRecord];
         setMoves(nextMoves);
 
         if (aiRes.game_state.status === 'GAME_OVER') {
-          const winnerSide: Side = (aiRes.game_state.result?.winner as Side) || (aiRes.game_state.side_to_move === 'RED' ? 'BLUE' : 'RED');
-          const finalResult: GameResult = {
-            winner: winnerSide,
-            reason: aiRes.game_state.result?.reason || 'COMMANDER_CAPTURED',
-            final_scores: aiRes.game_state.scores || scores,
-            total_turns: Math.ceil(nextMoves.length / 2),
-            total_moves: nextMoves.length,
-            duration_seconds: matchSeconds,
-            captured_commander_side: winnerSide === 'BLUE' ? 'RED' : 'BLUE',
-          };
           setStatus('GAME_OVER');
-          setGameResult(finalResult);
+          setGameResult(
+            buildGameResultFromDTO(
+              aiRes.game_state,
+              nextMoves,
+              matchSeconds,
+              aiRes.game_state.scores || scores,
+              actingSide
+            )
+          );
           setIsGameOverModalOpen(true);
           setSelectedPieceId(null);
+          setActiveCompound(null);
           return;
         }
 
         setSelectedPieceId(null);
-        setSideToMove('RED');
+        setActiveCompound(extractCompoundState(aiRes.game_state, nextNormalized));
+        setSideToMove(aiRes.game_state.side_to_move);
       } else {
-        // Fallback ngoại tuyến (Mock engine) - Tác tử AI thông minh không hiến Tư lệnh & ưu tiên hóa giải chiếu (DEC-019)
-        const smartAction = selectSmartAiAction(piecesRef.current, sideToMove);
+        // Fallback ngoại tuyến (Mock engine) - Tác tử AI thông minh bao gồm cả tổ hợp cõng quân & END_TURN
+        const smartAction = selectSmartAiAction(piecesRef.current, actingSide, activeCompound);
         if (smartAction) {
-          await handleExecuteAction(smartAction, true);
+          if (smartAction.action_type === 'END_TURN') {
+            await handleConfirmCompound();
+          } else {
+            await handleExecuteAction(smartAction, true);
+          }
+        } else if (!activeCompound) {
+          const outcome = evaluateTurnHandoffOutcome(piecesRef.current, actingSide);
+          if (outcome.isCheckmate || outcome.isStalemate) {
+            const opponent: Side = actingSide === 'RED' ? 'BLUE' : 'RED';
+            const finalScores = outcome.isCheckmate
+              ? { ...scores, [opponent]: scores[opponent] + 50 }
+              : { ...scores };
+            if (outcome.isCheckmate) setScores(finalScores);
+            setStatus('GAME_OVER');
+            setGameResult({
+              winner: outcome.isCheckmate ? opponent : 'DRAW',
+              reason: outcome.isCheckmate ? 'CHECKMATE' : 'STALEMATE',
+              final_scores: finalScores,
+              total_turns: Math.max(1, Math.ceil(moves.length / 2)),
+              total_moves: moves.length,
+              duration_seconds: matchSeconds,
+              captured_commander_side: null,
+            });
+            setIsGameOverModalOpen(true);
+          }
         }
       }
     } catch (err) {
@@ -350,18 +558,181 @@ export const App: React.FC = () => {
       }, 600);
       return () => clearTimeout(timer);
     }
-  }, [sideToMove, gameMode, status, activeTab, isAiThinking]);
+  }, [sideToMove, gameMode, status, activeTab, isAiThinking, activeCompound]);
 
   const handleExecuteAction = async (action: LegalAction, isAiAction: boolean = false) => {
     if (status === 'GAME_OVER' || (!isAiAction && isAiThinking)) return;
 
-    // 1. Authoritative local move application (retains full piece attributes & stability)
-    const { nextPieces, event, capturedPiece } = applyMockAction(action, pieces);
+    const currentPieces = piecesRef.current;
+    const currentSide = sideToMove;
+    const actorBefore = currentPieces.find((p) => p.piece_id === action.piece_id);
+    const effectiveCarryCargo =
+      action.carry_cargo !== undefined ? action.carry_cargo : carryCargoWithMovement;
+    const actionWithCarry: LegalAction = {
+      ...action,
+      carry_cargo: effectiveCarryCargo,
+    };
+
+    const originPos = activeCompound
+      ? activeCompound.originPos
+      : actorBefore
+      ? { ...getRootCarrier(actorBefore, currentPieces).position }
+      : { ...action.from_pos };
+
+    // Xác định tổ hợp quân gốc nếu nước đi thuộc lượt tác chiến tổ hợp
+    let memberIds: string[] = [];
+    if (activeCompound) {
+      memberIds = activeCompound.memberIds;
+    } else if (actorBefore && action.action_type !== 'BOARD') {
+      const actorWasCarried = actorBefore.carried_by_id != null;
+      const oldRoot = getRootCarrier(actorBefore, currentPieces);
+      const actorDescendants = getAllCarriedPieceIds(actorBefore.piece_id, currentPieces);
+      if (actorWasCarried && oldRoot.type !== 'HEADQUARTERS') {
+        memberIds = [oldRoot.piece_id, ...getAllCarriedPieceIds(oldRoot.piece_id, currentPieces)];
+      } else if (
+        !actorWasCarried &&
+        actorBefore.type !== 'HEADQUARTERS' &&
+        actorDescendants.length > 0 &&
+        (action.action_type === 'CAPTURE_STAND' || effectiveCarryCargo === false)
+      ) {
+        memberIds = [actorBefore.piece_id, ...actorDescendants];
+      }
+    }
+
+    const previouslyMoved = activeCompound ? activeCompound.movedPieceIds : [];
+    const newMoved = previouslyMoved.includes(action.piece_id)
+      ? [...previouslyMoved]
+      : [...previouslyMoved, action.piece_id];
+    const movedAway =
+      action.action_type !== 'CAPTURE_STAND' &&
+      (action.to_pos.x !== originPos.x || action.to_pos.y !== originPos.y);
+    if (movedAway && effectiveCarryCargo !== false) {
+      const travelingCargo = getAllCarriedPieceIds(action.piece_id, currentPieces);
+      for (const tcId of travelingCargo) {
+        if (!newMoved.includes(tcId)) {
+          newMoved.push(tcId);
+        }
+      }
+    }
+
+    // Dự đoán nhanh lượt tổ hợp còn tiếp tục hay không để truyền cờ is_compound_action chính xác cho backend
+    const previewOutcome = applyMockAction(actionWithCarry, currentPieces, false);
+    const previewRemainingAtOrigin = previewOutcome.nextPieces.filter(
+      (p) =>
+        p.is_alive &&
+        memberIds.includes(p.piece_id) &&
+        !newMoved.includes(p.piece_id) &&
+        p.position.x === originPos.x &&
+        p.position.y === originPos.y
+    );
+    const predictedCmdCaptured = Boolean(
+      previewOutcome.capturedPiece && previewOutcome.capturedPiece.type === 'COMMANDER'
+    );
+    const predictedStayInStack =
+      !predictedCmdCaptured &&
+      action.action_type !== 'BOARD' &&
+      action.action_type !== 'END_TURN' &&
+      memberIds.length > 1 &&
+      previewRemainingAtOrigin.length > 0 &&
+      newMoved.length < Math.min(3, memberIds.length);
+
+    // 1. Khi kết nối FastAPI backend online: sử dụng trạng thái trả về từ backend làm chuẩn duy nhất
+    if (backendOnline && gameSessionId) {
+      try {
+        const res = await apiClient.executeAction(gameSessionId, {
+          action_type: action.action_type,
+          piece_id: action.piece_id,
+          to_pos: action.to_pos,
+          target_piece_id: action.target_piece_id,
+          state_version: stateVersionRef.current,
+          is_compound_action: predictedStayInStack,
+          carry_cargo: effectiveCarryCargo,
+        });
+        syncStateVersion(res.state_version);
+        const gs = res.game_state;
+        const nextNormalized =
+          gs.pieces && gs.pieces.length > 0 ? normalizePieces(gs.pieces) : previewOutcome.nextPieces;
+        const prevDeadIds = new Set(currentPieces.filter((p) => !p.is_alive).map((p) => p.piece_id));
+        const newlyDead = nextNormalized.filter((p) => !p.is_alive && !prevDeadIds.has(p.piece_id));
+        if (newlyDead.length > 0) {
+          setCapturedPieces((prev) => [...prev, ...newlyDead]);
+        }
+        setPieces(nextNormalized);
+
+        if (gs.scores) {
+          setScores({ RED: gs.scores.RED, BLUE: gs.scores.BLUE });
+        }
+
+        const capPiece = action.target_piece_id
+          ? currentPieces.find((p) => p.piece_id === action.target_piece_id) || null
+          : null;
+        const newRecord: MoveRecord = {
+          move_number: moves.length + 1,
+          side: currentSide,
+          action: actionWithCarry,
+          notation: res.event.notation || action.notation,
+          captured_piece_type:
+            capPiece && !nextNormalized.some((p) => p.is_alive && p.piece_id === capPiece.piece_id)
+              ? capPiece.type
+              : null,
+          timestamp: Date.now(),
+        };
+        const nextMoves = [...moves, newRecord];
+        setMoves(nextMoves);
+        setCarryCargoWithMovement(true);
+        setSelectedPieceId(null);
+
+        if (gs.status === 'GAME_OVER') {
+          setStatus('GAME_OVER');
+          setGameResult(
+            buildGameResultFromDTO(gs, nextMoves, matchSeconds, gs.scores || scores, currentSide)
+          );
+          setIsGameOverModalOpen(true);
+          setActiveCompound(null);
+          return;
+        }
+
+        setActiveCompound(extractCompoundState(gs, nextNormalized));
+        setSideToMove(gs.side_to_move);
+        return;
+      } catch (err) {
+        console.warn('Backend action synchronization failed:', err);
+        if (err instanceof ApiError) {
+          try {
+            const fresh = await apiClient.getGame(gameSessionId);
+            syncStateVersion(fresh.state_version);
+            const freshNormalized = normalizePieces(fresh.pieces);
+            setPieces(freshNormalized);
+            setScores({ RED: fresh.scores.RED, BLUE: fresh.scores.BLUE });
+            setActiveCompound(extractCompoundState(fresh, freshNormalized));
+            setSideToMove(fresh.side_to_move);
+            if (fresh.status === 'GAME_OVER') {
+              setStatus('GAME_OVER');
+              setGameResult(buildGameResultFromDTO(fresh, moves, matchSeconds, scores, currentSide));
+              setIsGameOverModalOpen(true);
+            }
+            setCarryCargoWithMovement(true);
+            setSelectedPieceId(null);
+            return;
+          } catch {
+            // Fall through if unable to reach server
+          }
+        } else {
+          setBackendOnline(false);
+        }
+      }
+    }
+
+    // 2. Luồng ngoại tuyến (Mock game service)
+    const { nextPieces, event, capturedPiece } = applyMockAction(
+      actionWithCarry,
+      currentPieces,
+      !predictedStayInStack
+    );
     setPieces(nextPieces);
 
-    // Thu thập toàn bộ tổn thất (quân bị ăn, máy bay bị bắn hạ trong phòng không, quân chở theo)
     const newlyDead = nextPieces.filter(
-      (np) => !np.is_alive && pieces.find((p) => p.piece_id === np.piece_id && p.is_alive)
+      (np) => !np.is_alive && currentPieces.find((p) => p.piece_id === np.piece_id && p.is_alive)
     );
     if (newlyDead.length > 0) {
       setCapturedPieces((prev) => [...prev, ...newlyDead]);
@@ -371,7 +742,6 @@ export const App: React.FC = () => {
 
     const finalRedScore = scores.RED + event.score_delta.RED;
     const finalBlueScore = scores.BLUE + event.score_delta.BLUE;
-
     if (event.score_delta.RED > 0 || event.score_delta.BLUE > 0) {
       setScores({
         RED: finalRedScore,
@@ -381,221 +751,54 @@ export const App: React.FC = () => {
 
     const newRecord: MoveRecord = {
       move_number: moves.length + 1,
-      side: sideToMove,
-      action,
+      side: currentSide,
+      action: actionWithCarry,
       notation: event.notation || action.notation,
       captured_piece_type: capturedPiece ? capturedPiece.type : null,
       timestamp: Date.now(),
     };
     const nextMoves = [...moves, newRecord];
     setMoves(nextMoves);
+    setCarryCargoWithMovement(true);
 
-    // KẾT THÚC TRẬN ĐẤU: Bắt được Tư lệnh đối phương!
+    // KẾT THÚC TRẬN ĐẤU: Bắt được Tư lệnh đối phương (phòng thủ)
     if (capturedPiece && capturedPiece.type === 'COMMANDER') {
-      const winner: Side = sideToMove;
-      const result: GameResult = {
-        winner,
+      setStatus('GAME_OVER');
+      setGameResult({
+        winner: currentSide,
         reason: 'COMMANDER_CAPTURED',
         final_scores: { RED: finalRedScore, BLUE: finalBlueScore },
         total_turns: Math.ceil(nextMoves.length / 2),
         total_moves: nextMoves.length,
         duration_seconds: matchSeconds,
         captured_commander_side: capturedPiece.side,
-      };
-      setStatus('GAME_OVER');
-      setGameResult(result);
+      });
       setIsGameOverModalOpen(true);
       setSelectedPieceId(null);
       setActiveCompound(null);
-
-      if (backendOnline && gameSessionId) {
-        apiClient.executeAction(gameSessionId, {
-          action_type: action.action_type,
-          piece_id: action.piece_id,
-          to_pos: action.to_pos,
-          target_piece_id: action.target_piece_id,
-          state_version: stateVersionRef.current,
-          is_compound_action: false,
-        }).then((res) => syncStateVersion(res.state_version)).catch(console.warn);
-      }
       return;
     }
 
-    // KẾT THÚC TRẬN ĐẤU: Chiếu hết Tư lệnh đối phương! (DEC-019 & CHECKMATE)
-    if (event.details?.is_checkmate) {
-      const winner: Side = sideToMove;
-      const result: GameResult = {
-        winner,
-        reason: 'CHECKMATE',
+    // KẾT THÚC TRẬN ĐẤU: Chiếu hết (CHECKMATE) hoặc Hòa cờ bí (STALEMATE - DEC-020)
+    if (event.details?.is_checkmate || event.details?.is_stalemate) {
+      const isStale = Boolean(event.details?.is_stalemate);
+      setStatus('GAME_OVER');
+      setGameResult({
+        winner: isStale ? 'DRAW' : currentSide,
+        reason: isStale ? 'STALEMATE' : 'CHECKMATE',
         final_scores: { RED: finalRedScore, BLUE: finalBlueScore },
         total_turns: Math.ceil(nextMoves.length / 2),
         total_moves: nextMoves.length,
         duration_seconds: matchSeconds,
-        captured_commander_side: winner === 'RED' ? 'BLUE' : 'RED',
-      };
-      setStatus('GAME_OVER');
-      setGameResult(result);
+        captured_commander_side: null,
+      });
       setIsGameOverModalOpen(true);
       setSelectedPieceId(null);
       setActiveCompound(null);
-
-      if (backendOnline && gameSessionId) {
-        apiClient.executeAction(gameSessionId, {
-          action_type: action.action_type,
-          piece_id: action.piece_id,
-          to_pos: action.to_pos,
-          target_piece_id: action.target_piece_id,
-          state_version: stateVersionRef.current,
-          is_compound_action: false,
-        }).then((res) => syncStateVersion(res.state_version)).catch(console.warn);
-      }
       return;
     }
 
-    // =========================================================================
-    // QUY TẮC TỔ HỢP CÕNG QUÂN (Compound Action Mechanics - Rule 1, 2, 3, 4, 5)
-    // =========================================================================
-    if (isAiAction) {
-      setActiveCompound(null);
-      setSelectedPieceId(null);
-      setSideToMove('RED');
-
-      if (backendOnline && gameSessionId) {
-        apiClient.executeAction(gameSessionId, {
-          action_type: action.action_type,
-          piece_id: action.piece_id,
-          to_pos: action.to_pos,
-          target_piece_id: action.target_piece_id,
-          state_version: stateVersionRef.current,
-          is_compound_action: false,
-        }).then((res) => syncStateVersion(res.state_version)).catch(console.warn);
-      }
-      return;
-    }
-
-    const actorBefore = pieces.find((p) => p.piece_id === action.piece_id);
-    const originPos = activeCompound
-      ? activeCompound.originPos
-      : actorBefore
-      ? { ...actorBefore.position }
-      : { ...action.from_pos };
-
-    // Xác định xem hành động này có thuộc về một tổ hợp quân hay không
-    let memberIds: string[] = [];
-    if (activeCompound) {
-      memberIds = activeCompound.memberIds;
-    } else {
-      const carriedBy = actorBefore?.carried_by_id;
-      const rootCarrier = carriedBy
-        ? pieces.find((p) => p.piece_id === carriedBy) || actorBefore
-        : actorBefore;
-      const passengers = pieces.filter(
-        (p) =>
-          p.is_alive &&
-          p.side === sideToMove &&
-          (p.carried_by_id === rootCarrier?.piece_id || p.carried_by_id === actorBefore?.piece_id)
-      );
-      if (rootCarrier && passengers.length > 0) {
-        memberIds = [rootCarrier.piece_id, ...passengers.map((p) => p.piece_id)];
-      }
-    }
-
-    const isCompoundAction = memberIds.length > 1;
-
-    // Xử lý chuỗi hành động trong lượt tổ hợp (STACK_ACTIVE):
-    const previouslyMoved = activeCompound ? activeCompound.movedPieceIds : [];
-    const newMoved = [...previouslyMoved, action.piece_id];
-
-    // QUY TẮC 4: Nếu quân di chuyển ra khỏi vị trí xuất phát, kể cả có mang quân theo
-    // thì quân được mang cũng được tính là đã hoàn thành nước đi và không được đi tiếp!
-    const movedAway =
-      action.action_type !== 'CAPTURE_STAND' &&
-      (action.to_pos.x !== originPos.x || action.to_pos.y !== originPos.y);
-
-    if (movedAway && action.carry_cargo !== false) {
-      const travelingCargo = getAllCarriedPieceIds(action.piece_id, pieces);
-      for (const tcId of travelingCargo) {
-        if (!newMoved.includes(tcId)) {
-          newMoved.push(tcId);
-        }
-      }
-    }
-
-    setCarryCargoWithMovement(true);
-
-    // Kiểm tra xem còn quân nào trong tổ hợp còn ở vị trí xuất phát và chưa hành động không
-    const remainingAtOrigin = nextPieces.filter(
-      (p) =>
-        p.is_alive &&
-        memberIds.includes(p.piece_id) &&
-        !newMoved.includes(p.piece_id) &&
-        p.position.x === originPos.x &&
-        p.position.y === originPos.y
-    );
-
-    // Xác định chính xác xem lượt tổ hợp này đã kết thúc hay còn tiếp tục nước đi kế tiếp
-    const isCompoundStillActive =
-      isCompoundAction &&
-      remainingAtOrigin.length > 0 &&
-      newMoved.length < memberIds.length;
-
-    // 2. Đồng bộ hành động sang FastAPI backend session với cờ is_compound_action chính xác
-    if (backendOnline && gameSessionId) {
-      try {
-        const res = await apiClient.executeAction(gameSessionId, {
-          action_type: action.action_type,
-          piece_id: action.piece_id,
-          to_pos: action.to_pos,
-          target_piece_id: action.target_piece_id,
-          state_version: stateVersionRef.current,
-          is_compound_action: isCompoundStillActive,
-        });
-        syncStateVersion(res.state_version);
-        if (res.game_state && res.game_state.pieces) {
-          // Bảo đảm các quân đã bị tiêu diệt cục bộ không bị phản hồi từ backend đè trạng thái
-          // Và quân người chơi vừa di chuyển giữ nguyên toạ độ đích đến đã chọn
-          const reconciledPieces = res.game_state.pieces.map((rp) => {
-            const localPiece = nextPieces.find((lp) => lp.piece_id === rp.piece_id);
-            if (!localPiece) return rp;
-            if (!localPiece.is_alive) {
-              return { ...rp, is_alive: false };
-            }
-            if (localPiece.piece_id === action.piece_id || localPiece.side === actorBefore?.side) {
-              return {
-                ...rp,
-                position: { ...localPiece.position },
-                carried_by_id: localPiece.carried_by_id,
-                is_hero: localPiece.is_hero || rp.is_hero,
-              };
-            }
-            return {
-              ...rp,
-              is_hero: localPiece.is_hero || rp.is_hero,
-            };
-          });
-          // Bảo đảm tính nhất quán 2 chiều tuyệt đối giữa carried_by_id và carrying_piece_ids
-          const consistentPieces = reconciledPieces.map((p) => ({
-            ...p,
-            carrying_piece_ids: reconciledPieces
-              .filter((other) => other.is_alive && other.carried_by_id === p.piece_id)
-              .map((other) => other.piece_id),
-          }));
-          setPieces(consistentPieces);
-        }
-      } catch (err) {
-        console.warn('Backend action synchronization failed:', err);
-        // Refresh state_version từ backend để tránh lỗi lệch phiên bản ở các nước tiếp theo
-        try {
-          const fresh = await apiClient.getGame(gameSessionId);
-          syncStateVersion(fresh.state_version);
-        } catch (syncErr) {
-          console.warn('Failed to resync state version:', syncErr);
-        }
-      }
-    }
-
-    if (isCompoundStillActive) {
-      // Vẫn còn quân ở vị trí xuất phát chưa hành động: Tiếp tục duy trì lượt tổ hợp (STACK_ACTIVE)
+    if (predictedStayInStack) {
       setActiveCompound({
         originPos,
         memberIds,
@@ -603,12 +806,10 @@ export const App: React.FC = () => {
         actionCount: (activeCompound?.actionCount || 0) + 1,
       });
       setSelectedPieceId(null);
-      // Giữ nguyên sideToMove để người chơi tiếp tục chọn quân còn lại hoặc bấm "Hoàn tất lượt tổ hợp"!
     } else {
-      // Nước đi đơn lẻ hoặc toàn bộ các quân trong tổ hợp đã hoàn tất nước đi: Kết thúc lượt, đổi phe!
       setActiveCompound(null);
       setSelectedPieceId(null);
-      setSideToMove((prev) => (prev === 'RED' ? 'BLUE' : 'RED'));
+      setSideToMove(currentSide === 'RED' ? 'BLUE' : 'RED');
     }
   };
 
@@ -626,6 +827,7 @@ export const App: React.FC = () => {
     setPieces(getInitialPieces());
     setSelectedPieceId(null);
     setActiveCompound(null);
+    setCarryCargoWithMovement(true);
     setSideToMove('RED');
     setScores({ RED: 0, BLUE: 0 });
     setMoves([]);
@@ -647,6 +849,9 @@ export const App: React.FC = () => {
         });
         setGameSessionId(session.game_id);
         syncStateVersion(session.state_version);
+        if (session.pieces && session.pieces.length > 0) {
+          setPieces(normalizePieces(session.pieces));
+        }
       } catch (err) {
         console.warn('Backend new game creation failed:', err);
       }
@@ -957,7 +1162,11 @@ export const App: React.FC = () => {
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => setSideToMove(sideToMove === 'RED' ? 'BLUE' : 'RED')}
+                    onClick={() => {
+                      setActiveCompound(null);
+                      setSelectedPieceId(null);
+                      setSideToMove(sideToMove === 'RED' ? 'BLUE' : 'RED');
+                    }}
                     disabled={status === 'GAME_OVER' || isAiThinking}
                     title="Chuyển lượt thử nghiệm"
                   >
@@ -1051,32 +1260,32 @@ export const App: React.FC = () => {
                 </ul>
               </div>
 
-              {/* Card 2: Quy tắc Tối thượng — Cấm Tư lệnh Đối mặt nhau */}
+              {/* Card 2: Quy tắc Tối thượng — An toàn Tư lệnh, Chiếu hết & Hòa cờ bí */}
               <div className={styles.rulesCard}>
                 <h3 className={styles.rulesCardTitle} style={{ color: 'var(--crimson-primary)' }}>
                   <span>⚠️</span>
-                  {lang === 'vi' ? '2. Cấm Tư lệnh Đối mặt (Lộ mặt Tướng)' : '2. Opposing Commanders Prohibition'}
+                  {lang === 'vi' ? '2. An toàn Tư lệnh, Chiếu hết & Hòa cờ bí' : '2. Commander Safety, Checkmate & Stalemate'}
                 </h3>
                 <ul className={styles.rulesList}>
                   <li>
                     {lang === 'vi'
-                      ? 'Hai Tư lệnh không bao giờ được cùng nằm trên một đường thẳng (cùng hàng ngang hoặc cùng cột dọc) mà ở giữa không có bất kỳ quân cờ nào che chắn.'
-                      : 'The two Commanders must NEVER face each other on the same orthogonal line (row or column) without any piece blocking between them.'}
+                      ? 'Mọi nước đi khiến Tư lệnh bị uy hiếp (đối mặt trực tiếp không quân cản, tự bước vào ô bị ăn, hoặc để quân đang ngồi trên phương tiện địch triển khai ăn được) đều bị cấm tuyệt đối.'
+                      : 'Every move leaving your Commander threatened (direct facing, moving into attack, pinned blocker leaving, or enemy carried deployment attack) is strictly illegal.'}
                   </li>
                   <li>
                     {lang === 'vi'
-                      ? 'Nước đi tự sát bị cấm: Tư lệnh không được tự di chuyển vào đường thẳng trống đang có Tư lệnh địch.'
-                      : 'Suicide moves prohibited: Commander cannot step into an unobstructed line facing enemy Commander.'}
+                      ? 'Che chở & Chắn đối mặt: Tư lệnh đang trú trong Sở chỉ huy thường không bị chiếu; Tư lệnh ngồi trên Xe tăng, Máy bay, Tàu chiến hoặc Sở chỉ huy đều chắn đường đối mặt giữa 2 Tư lệnh.'
+                      : 'Shielding & Facing: Commander sheltered in regular HQ cannot be checked; Commander carried inside Tank, Aircraft, Navy, or HQ blocks opposing Commander facing.'}
                   </li>
                   <li>
                     {lang === 'vi'
-                      ? 'Ghim quân cản: Quân cờ đang là vật cản duy nhất giữa 2 Tư lệnh bị "ghim" tại chỗ, tuyệt đối không được di chuyển rời khỏi đường thẳng đó.'
-                      : 'Pinned piece: A single piece standing between two Commanders is pinned and cannot move off that line.'}
+                      ? 'Chiếu hết để thắng (+50đ): Bên đang bị chiếu mà còn 0 nước đi hợp lệ sẽ thua ngay lập tức.'
+                      : 'Checkmate to Win (+50 pts): When in check with 0 legal moves, that side loses immediately.'}
                   </li>
                   <li>
                     {lang === 'vi'
-                      ? 'Sở chỉ huy che chở: Tư lệnh trú trong Sở chỉ huy được che chở an toàn khỏi quy tắc đối mặt.'
-                      : 'HQ shelter: Commander inside a Headquarters is shielded from the opposing commanders rule.'}
+                      ? 'Hòa cờ bí (Stalemate): Khi đến lượt một bên có 0 nước đi hợp lệ nhưng Tư lệnh KHÔNG bị chiếu → ván đấu xử HÒA ngay lập tức.'
+                      : 'Stalemate Draw: If the active side has 0 legal moves while NOT in check, the match immediately ends in a DRAW.'}
                   </li>
                 </ul>
               </div>
@@ -1150,18 +1359,18 @@ export const App: React.FC = () => {
                 <ul className={styles.rulesList}>
                   <li>
                     {lang === 'vi'
-                      ? 'Điều kiện phong: Tự động phong Anh hùng khi một quân đi nước chiếu Tư lệnh địch, hoặc khi phe chỉ còn đúng 1 quân khác ngoài Tư lệnh.'
-                      : 'Promotion conditions: Automatically promoted when checking the enemy Commander, or when only 1 non-Commander piece remains.'}
+                      ? 'Điều kiện phong: Phong Anh hùng khi quân đi nước chiếu Tư lệnh địch; khi phe chỉ còn đúng 1 quân chiến đấu (không tính Tư lệnh & Sở chỉ huy); hoặc khi chỉ còn Tư lệnh + duy nhất 1 Sở chỉ huy.'
+                      : 'Promotion conditions: Promoted on checking the enemy Commander; when only 1 combat piece remains (excluding Commander & HQ); or when only Commander + 1 solitary HQ remain.'}
                   </li>
                   <li>
                     {lang === 'vi'
-                      ? 'Dấu hiệu nhận biết: Quân được phong Anh hùng có thêm một ngôi sao vàng nhỏ (★) nằm ở góc trên quân cờ trên bàn cờ.'
-                      : 'Visual badge: Heroic pieces proudly display a golden star badge (★) at the top-right corner of their piece icon.'}
+                      ? 'Phong trễ Sở chỉ huy duy nhất: Nếu còn 2 Sở chỉ huy thì CHƯA phong. Khi còn đúng 1 Sở chỉ huy + Tư lệnh đang núp bên trong, Sở chỉ huy CHƯA phong ngay mà buộc Tư lệnh di chuyển rời Sở chỉ huy trước (nước đi duy nhất), ngay khi Tư lệnh bước ra thì Sở chỉ huy lập tức phong Anh hùng!'
+                      : 'Delayed Solitary-HQ Promotion: 2 HQs are never promoted. If only 1 HQ + Commander sheltered inside remain, HQ stays unpromoted until Commander exits (its only legal move), promoting the sole HQ to Hero the instant Commander steps out.'}
                   </li>
                   <li>
                     {lang === 'vi'
-                      ? 'Quyền năng vượt trội: Tăng 1 đoạn tầm đi và ăn; được bổ sung các đường chéo; Máy bay Anh hùng trở thành máy bay tàng hình miễn nhiễm phòng không!'
-                      : 'Heroic traits: +1 step to movement and attack range; gains diagonal movements; Heroic Aircraft becomes stealth and ignores air defense!'}
+                      ? 'Quyền năng vượt trội: Tăng 1 đoạn tầm đi và ăn; được bổ sung các đường chéo; Máy bay Anh hùng miễn nhiễm phòng không; mọi quân (kể cả Bộ binh, Dân quân, Tăng, Pháo, Công binh, Tư lệnh...) đều có thể tấn công Máy bay!'
+                      : 'Heroic traits: +1 step move/capture range; gains diagonals; Hero Aircraft ignores AA; and EVERY piece type can attack Aircraft!'}
                   </li>
                 </ul>
               </div>
@@ -1191,19 +1400,19 @@ export const App: React.FC = () => {
                       {lang === 'vi' ? 'Tư lệnh (⋆)' : 'Commander (⋆)'}
                     </td>
                     <td>{lang === 'vi' ? 'Ngang/dọc không hạn chế (bị cản)' : 'Orthogonal unlimited (blocked)'}</td>
-                    <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn (thế chỗ @)' : 'Orthogonal 1 step (@)'}</td>
-                    <td>{lang === 'vi' ? 'Quân mặt đất, tàu ven bờ. KHÔNG đánh máy bay.' : 'Ground units, coastal ships. NO aircraft.'}</td>
-                    <td>{lang === 'vi' ? 'Tự qua sông sâu được. Không ra biển sâu.' : 'Crosses deep river. Cannot enter deep sea.'}</td>
+                    <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn (thế chỗ @ hoặc _@_)' : 'Orthogonal 1 step (@ or _@_)'}</td>
+                    <td>{lang === 'vi' ? 'Mọi quân địch (kể cả Máy bay) và tàu ven bờ (cấm tự sát).' : 'All enemy pieces (incl. Aircraft) & coastal ships (no self-check).'}</td>
+                    <td>{lang === 'vi' ? 'Tự qua sông sâu được. Trên Tăng/Máy bay/Tàu/SCH đều chắn đối mặt.' : 'Crosses deep river. Carried Commander blocks facing.'}</td>
                   </tr>
                   <tr>
                     <td className={styles.rulesPieceName}>
                       <span style={{ color: 'var(--text-secondary)' }}>S</span>
                       {lang === 'vi' ? 'Sở chỉ huy (S)' : 'Headquarters (S)'}
                     </td>
-                    <td>{lang === 'vi' ? 'Cố định, không di chuyển' : 'Stationary, no move'}</td>
-                    <td>{lang === 'vi' ? 'Không ăn quân' : 'No attack'}</td>
-                    <td>{lang === 'vi' ? 'Công trình phòng thủ che chắn Tư lệnh.' : 'Defensive structure shielding Commander.'}</td>
-                    <td>{lang === 'vi' ? 'Cố định trên đất liền. Bị phá Tư lệnh lộ diện.' : 'Land base. When destroyed, Commander revealed.'}</td>
+                    <td>{lang === 'vi' ? 'Cố định (Anh hùng: 8 hướng 1–2 đoạn)' : 'Stationary (Hero: 8-dir 1–2 steps)'}</td>
+                    <td>{lang === 'vi' ? 'Thường: không ăn. Anh hùng: 8 hướng 1–2 đoạn' : 'Regular: none. Hero: 8-dir 1–2 steps'}</td>
+                    <td>{lang === 'vi' ? 'Thường che chắn Tư lệnh. Anh hùng chiến đấu như Bộ binh Anh hùng.' : 'Regular shelters Commander. Hero fights like Hero Infantry.'}</td>
+                    <td>{lang === 'vi' ? 'Chỉ Sở chỉ huy duy nhất mới phong Anh hùng (phong trễ nếu Tư lệnh đang núp).' : 'Only sole HQ promotes to Hero (delayed while Commander is inside).'}</td>
                   </tr>
                   <tr>
                     <td className={styles.rulesPieceName}>
@@ -1212,7 +1421,7 @@ export const App: React.FC = () => {
                     </td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn' : 'Orthogonal 1 step'}</td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn (thế chỗ @)' : 'Orthogonal 1 step (@)'}</td>
-                    <td>{lang === 'vi' ? 'Quân mặt đất, tàu ven bờ. KHÔNG đánh máy bay.' : 'Ground units, coastal ships. NO aircraft.'}</td>
+                    <td>{lang === 'vi' ? 'Mọi quân mặt đất, Máy bay và tàu ven bờ.' : 'Ground units, Aircraft, and coastal ships.'}</td>
                     <td>{lang === 'vi' ? 'Bơi qua sông sâu được. Lên xe tăng, tàu chiến.' : 'Swims across deep river. Boards tanks, warships.'}</td>
                   </tr>
                   <tr>
@@ -1222,7 +1431,7 @@ export const App: React.FC = () => {
                     </td>
                     <td>{lang === 'vi' ? '8 hướng (ngang/dọc/chéo) 1 đoạn' : 'All 8 directions, 1 step'}</td>
                     <td>{lang === 'vi' ? '8 hướng 1 đoạn (thế chỗ @)' : 'All 8 directions, 1 step (@)'}</td>
-                    <td>{lang === 'vi' ? 'Quân mặt đất, tàu ven bờ. KHÔNG đánh máy bay.' : 'Ground units, coastal ships. NO aircraft.'}</td>
+                    <td>{lang === 'vi' ? 'Mọi quân mặt đất, Máy bay và tàu ven bờ.' : 'Ground units, Aircraft, and coastal ships.'}</td>
                     <td>{lang === 'vi' ? 'Qua sông sâu được. Không ra biển sâu.' : 'Crosses deep river. Cannot enter deep sea.'}</td>
                   </tr>
                   <tr>
@@ -1232,8 +1441,8 @@ export const App: React.FC = () => {
                     </td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1–2 đoạn (bị cản ở đoạn 1)' : 'Orthogonal 1–2 steps (blocked)'}</td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1–2 đoạn (thế chỗ @)' : 'Orthogonal 1–2 steps (@)'}</td>
-                    <td>{lang === 'vi' ? 'Quân đất. Bắn tàu biển tại chỗ (_@_). Không đánh máy bay.' : 'Ground units. Fires at sea ships in-place (_@_).'}</td>
-                    <td>{lang === 'vi' ? 'Không tự qua sông sâu. Cõng tối đa 2 bộ binh.' : 'No deep river alone. Transports up to 2 infantry.'}</td>
+                    <td>{lang === 'vi' ? 'Quân đất, Máy bay. Bắn tàu biển tại chỗ (_@_).' : 'Ground units, Aircraft. Fires at sea ships in-place (_@_).'}</td>
+                    <td>{lang === 'vi' ? 'Không tự qua sông sâu (trừ ngầm đá). Cõng tối đa 2 bộ binh.' : 'No deep river alone (except fords). Transports up to 2 infantry.'}</td>
                   </tr>
                   <tr>
                     <td className={styles.rulesPieceName}>
@@ -1242,7 +1451,7 @@ export const App: React.FC = () => {
                     </td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn' : 'Orthogonal 1 step'}</td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn (thế chỗ @)' : 'Orthogonal 1 step (@)'}</td>
-                    <td>{lang === 'vi' ? 'Quân mặt đất. KHÔNG đánh máy bay.' : 'Ground units. NO aircraft.'}</td>
+                    <td>{lang === 'vi' ? 'Mọi quân mặt đất, Máy bay và tàu ven bờ.' : 'Ground units, Aircraft, and coastal ships.'}</td>
                     <td>{lang === 'vi' ? 'Bơi qua sông sâu. Đứng ở bờ cõng vũ khí nặng qua sông.' : 'Swims river. Bridges/carries heavy weapons across.'}</td>
                   </tr>
                   <tr>
@@ -1252,7 +1461,7 @@ export const App: React.FC = () => {
                     </td>
                     <td>{lang === 'vi' ? '8 hướng 1–3 đoạn (bị cản)' : 'All 8 directions 1–3 steps (blocked)'}</td>
                     <td>{lang === 'vi' ? '8 hướng 1–3 đoạn (BẮN XUYÊN MỌI QUÂN CẢN)' : 'All 8 directions (PIERCES ALL OBSTACLES)'}</td>
-                    <td>{lang === 'vi' ? 'Mọi quân đất. Bắn tàu biển tại chỗ (_@_). Không đánh máy bay.' : 'Ground units. Fires at ships in-place (_@_).'}</td>
+                    <td>{lang === 'vi' ? 'Mọi quân đất, Máy bay. Bắn tàu biển tại chỗ (_@_).' : 'Ground units, Aircraft. Fires at ships in-place (_@_).'}</td>
                     <td>{lang === 'vi' ? 'Không tự qua sông sâu (qua ngầm hoặc Công binh chở).' : 'No deep river alone (needs Engineer or stone ford).'}</td>
                   </tr>
                   <tr>
@@ -1262,18 +1471,18 @@ export const App: React.FC = () => {
                     </td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn' : 'Orthogonal 1 step'}</td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn (bắn máy bay & bộ binh)' : 'Orthogonal 1 step (hits aircraft & infantry)'}</td>
-                    <td>{lang === 'vi' ? 'Bắn hạ máy bay và quân bộ. Tạo vành đai lửa 1 đoạn.' : 'Shoots aircraft and infantry. Projects 1-step AA.'}</td>
-                    <td>{lang === 'vi' ? 'Không tự qua sông sâu. Không ra biển sâu.' : 'No deep river alone. Cannot enter deep sea.'}</td>
+                    <td>{lang === 'vi' ? 'Bắn hạ máy bay và mọi quân bộ. Tạo vành đai lửa 1 đoạn.' : 'Shoots aircraft and land units. Projects 1-step AA.'}</td>
+                    <td>{lang === 'vi' ? 'Không tự qua sông sâu (qua ngầm hoặc Công binh chở).' : 'No deep river alone (except fords or Engineer).'}</td>
                   </tr>
                   <tr>
                     <td className={styles.rulesPieceName}>
                       <span style={{ color: 'var(--team-blue)' }}>L</span>
                       {lang === 'vi' ? 'Tên lửa (L)' : 'Missile (L)'}
                     </td>
-                    <td>{lang === 'vi' ? 'Ngang/dọc 1–2 đoạn, chéo 1 đoạn' : 'Orthogonal 1–2, diagonal 1 step'}</td>
-                    <td>{lang === 'vi' ? 'Ngang/dọc 1–2 đoạn, chéo 1 đoạn' : 'Orthogonal 1–2, diagonal 1 step'}</td>
+                    <td>{lang === 'vi' ? 'Ngang/dọc 1–2, chéo 1 đoạn (KHÔNG xuyên cản)' : 'Orthogonal 1–2, diag 1 (blocked on move)'}</td>
+                    <td>{lang === 'vi' ? 'Ngang/dọc 1–2, chéo 1 đoạn (ĐƯỢC ĂN XUYÊN CẢN)' : 'Orthogonal 1–2, diag 1 (PIERCES OBSTACLES)'}</td>
                     <td>{lang === 'vi' ? 'Bắn máy bay, tàu chiến, quân đất. Vành đai lửa 2 thẳng + 1 chéo.' : 'Hits aircraft, ships, ground. Projects wide AA umbrella.'}</td>
-                    <td>{lang === 'vi' ? 'Không tự qua sông sâu. Không ra biển sâu.' : 'No deep river alone. Cannot enter deep sea.'}</td>
+                    <td>{lang === 'vi' ? 'Di chuyển không xuyên cản, không tự vượt sông sâu (trừ ngầm đá).' : 'Cannot move through blockers; crosses river only via stone fords.'}</td>
                   </tr>
                   <tr>
                     <td className={styles.rulesPieceName}>
@@ -1283,17 +1492,17 @@ export const App: React.FC = () => {
                     <td>{lang === 'vi' ? '8 hướng 1–4 đoạn (BAY XUYÊN MỌI QUÂN)' : 'All 8 directions 1–4 steps (FLIES OVER ALL)'}</td>
                     <td>{lang === 'vi' ? '8 hướng 1–4 đoạn (thế chỗ @ hoặc ném bom _@_)' : 'All 8 directions (@ or bombing _@_)'}</td>
                     <td>{lang === 'vi' ? 'Đánh máy bay (bắt buộc thế chỗ). Đánh đất/biển (ném bom/oanh tạc).' : 'Dogfights aircraft (@). Ground/naval bomb or strike.'}</td>
-                    <td>{lang === 'vi' ? 'Bay qua sông, biển. Bị tiêu diệt bởi vành đai lửa phòng không.' : 'Flies over river & sea. Intercepted by AA umbrellas.'}</td>
+                    <td>{lang === 'vi' ? 'Bay qua sông, biển, qua đầu quân ta/địch. Bị bắn hạ trong vành đai phòng không.' : 'Flies over river, sea & all pieces. Intercepted by AA umbrellas.'}</td>
                   </tr>
                   <tr>
                     <td className={styles.rulesPieceName}>
                       <span style={{ color: 'var(--team-blue)' }}>H</span>
                       {lang === 'vi' ? 'Hải quân (H)' : 'Navy (H)'}
                     </td>
-                    <td>{lang === 'vi' ? '8 hướng 1–4 đoạn (trên sông/biển)' : 'All 8 directions 1–4 steps (sea & river)'}</td>
-                    <td>{lang === 'vi' ? 'Diệt hạm 4 đoạn, pháo hạm 3 đoạn, cao xạ hạm 1 đoạn' : 'Missiles 4 steps, naval guns 3, AA gun 1'}</td>
-                    <td>{lang === 'vi' ? 'Tàu chiến địch, quân trên đất/bờ, máy bay. Cõng máy bay/xe tăng.' : 'Enemy warships, coastal units, aircraft. Transports.'}</td>
-                    <td>{lang === 'vi' ? 'Chỉ đi trên Biển (X: 0..2) và Sông (Y: 5..6). Không lên cạn.' : 'Operates only in Sea (X: 0..2) and River (Y: 5..6).'}</td>
+                    <td>{lang === 'vi' ? '8 hướng 1–4 đoạn (vượt qua quân ta trên bờ biển/bờ sông)' : 'All 8 directions 1–4 steps (passes friendly shore units)'}</td>
+                    <td>{lang === 'vi' ? 'Diệt hạm 4 đoạn, pháo hạm 3 đoạn, cao xạ 1 đoạn (AH: +1)' : 'Ships 4, naval gun into land 3, AA 1 (Hero: +1)'}</td>
+                    <td>{lang === 'vi' ? 'Tàu địch, Máy bay (1đ), và bắn Pháo hạm vào đất liền qua vật cản trong 3đ (AH: 4đ).' : 'Enemy ships, Aircraft (1), and bombards inland over obstacles within 3 steps (Hero: 4).'}</td>
+                    <td>{lang === 'vi' ? 'Chỉ đi trên Biển (X: 0..2) và Sông (Y: 5..6). Không cắt góc đất liền, tránh 2 ngầm đá.' : 'Operates in Sea (X: 0..2) & River (Y: 5..6), avoiding land corners & stone fords.'}</td>
                   </tr>
                 </tbody>
               </table>

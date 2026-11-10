@@ -3,6 +3,7 @@ import { PieceState } from '../../types';
 import { getPieceImageUrl, PIECE_VIETNAMESE_NAMES, PIECE_ENGLISH_NAMES } from '../../utils/assets';
 import { formatCoordinateNotation } from '../../utils/coordinates';
 import { Language, translations } from '../../i18n';
+import { getRootCarrier, getAllCarriedPieceIds } from '../../services/mockGameService';
 import styles from './PieceDetail.module.css';
 
 interface PieceDetailProps {
@@ -34,16 +35,17 @@ export const PieceDetail: React.FC<PieceDetailProps> = ({
   const sideName = piece.side === 'RED' ? t.game.redSide : t.game.blueSide;
   const imgUrl = getPieceImageUrl(piece.type, piece.side);
 
-  // Find compound carrier and passengers if this piece is in a transport relationship
-  const compoundCarrier = piece.carried_by_id
+  // Find root compound carrier and nested passengers if this piece is in a transport relationship
+  const rootCarrier = getRootCarrier(piece, allPieces);
+  const rootPassengers = getAllCarriedPieceIds(rootCarrier.piece_id, allPieces)
+    .map((id) => allPieces.find((p) => p.is_alive && p.piece_id === id))
+    .filter((p): p is PieceState => Boolean(p));
+  const compoundCarrier =
+    piece.carried_by_id || rootPassengers.length > 0 ? rootCarrier : null;
+  const compoundPassengers = compoundCarrier ? rootPassengers : [];
+  const directCarrier = piece.carried_by_id
     ? allPieces.find((p) => p.piece_id === piece.carried_by_id) || null
-    : allPieces.some((p) => p.is_alive && p.carried_by_id === piece.piece_id)
-    ? piece
     : null;
-
-  const compoundPassengers = compoundCarrier
-    ? allPieces.filter((p) => p.is_alive && p.carried_by_id === compoundCarrier.piece_id)
-    : [];
 
   return (
     <div className={`tactical-panel ${styles.panel}`}>
@@ -100,10 +102,10 @@ export const PieceDetail: React.FC<PieceDetailProps> = ({
           <div className={styles.specRow}>
             <span className={styles.specLabel}>{lang === 'vi' ? 'Nơi trú/xe' : 'Onboard'}</span>
             <span className={styles.specValue} style={{ color: 'var(--gold-primary)' }}>
-              {compoundCarrier
+              {directCarrier
                 ? lang === 'vi'
-                  ? PIECE_VIETNAMESE_NAMES[compoundCarrier.type]
-                  : PIECE_ENGLISH_NAMES[compoundCarrier.type]
+                  ? PIECE_VIETNAMESE_NAMES[directCarrier.type]
+                  : PIECE_ENGLISH_NAMES[directCarrier.type]
                 : piece.carried_by_id}
             </span>
           </div>

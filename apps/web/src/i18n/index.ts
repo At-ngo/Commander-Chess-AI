@@ -69,6 +69,7 @@ export interface Translations {
     victoryBlue: string;
     drawMatch: string;
     reasonCheckmate: string;
+    reasonStalemate: string;
     reasonCommanderCaptured: string;
     reasonResignation: string;
     reasonDraw: string;
@@ -160,6 +161,7 @@ export const translations: Record<Language, Translations> = {
       victoryBlue: 'PHE XANH TOÀN THẮNG!',
       drawMatch: 'TRẬN ĐẤU BẤT PHÂN THẮNG BẠI',
       reasonCheckmate: 'Chiếu hết Tư lệnh đối phương (+50 điểm)',
+      reasonStalemate: 'Hòa cờ bí (Stalemate): bên đi kế tiếp hết nước đi hợp lệ nhưng không bị chiếu',
       reasonCommanderCaptured: 'Tư lệnh đối phương đã bị bắt giữ (+50 điểm)',
       reasonResignation: 'Đối phương đã chủ động đầu hàng',
       reasonDraw: 'Hai bên đồng thuận đình chiến hòa bình',
@@ -261,6 +263,7 @@ export const translations: Record<Language, Translations> = {
       victoryBlue: 'BLUE FORCE VICTORY!',
       drawMatch: 'HONORABLE STALEMATE',
       reasonCheckmate: 'Checkmate: Opposing Commander has no escape (+50 pts)',
+      reasonStalemate: 'Stalemate Draw: Side to move has no legal moves and is not in check',
       reasonCommanderCaptured: 'Opposing Commander captured (+50 victory pts)',
       reasonResignation: 'Opposing force has surrendered',
       reasonDraw: 'Mutual agreement for peaceful armistice',
