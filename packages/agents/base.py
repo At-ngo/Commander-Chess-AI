@@ -17,8 +17,31 @@ import random
 import time
 from typing import Any
 
-from commander_game_engine.actions import AtomicAction
+from commander_game_engine.actions import AtomicAction, TurnCommand
 from commander_game_engine.game_state import GameState
+
+
+AgentAction = AtomicAction | TurnCommand
+
+
+def format_action_str(action: AgentAction) -> str:
+    """Chuyển hành động sang chuỗi chuẩn phục vụ log, tie-break tất định và replay."""
+    if isinstance(action, TurnCommand):
+        return f"CMD:{action.command_type.value}"
+    parts = [f"{action.action_type.value.upper()}:{action.piece_id}"]
+    if action.start is not None:
+        parts.append(f"@({action.start[0]},{action.start[1]})")
+    if action.end is not None:
+        parts.append(f"->({action.end[0]},{action.end[1]})")
+    if action.target_piece_id is not None:
+        parts.append(f"#target={action.target_piece_id}")
+    if action.carrier_id is not None:
+        parts.append(f"#carrier={action.carrier_id}")
+    if action.passenger_id is not None:
+        parts.append(f"#passenger={action.passenger_id}")
+    if not action.carry_cargo:
+        parts.append(";carry=0")
+    return "".join(parts)
 
 
 class AgentError(Exception):
@@ -37,7 +60,7 @@ class InvalidActionReturnedError(AgentError):
 class AgentDecision:
     """Kết quả quyết định nước đi của một tác tử."""
 
-    action: AtomicAction
+    action: AtomicAction | TurnCommand
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -68,7 +91,7 @@ class BaseAgent(ABC):
     def select_action(
         self,
         state: GameState,
-        legal_actions: list[AtomicAction],
+        legal_actions: list[AtomicAction | TurnCommand],
         **kwargs: Any,
     ) -> AgentDecision:
         """Phương thức chuẩn để chọn một nước đi.
@@ -111,9 +134,9 @@ class BaseAgent(ABC):
     def _choose_action(
         self,
         state: GameState,
-        legal_actions: list[AtomicAction],
+        legal_actions: list[AtomicAction | TurnCommand],
         **kwargs: Any,
-    ) -> tuple[AtomicAction, dict[str, Any]]:
+    ) -> tuple[AtomicAction | TurnCommand, dict[str, Any]]:
         """Thuật toán chọn nước đi cụ thể của từng lớp con.
 
         Trả về:

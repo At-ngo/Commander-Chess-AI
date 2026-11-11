@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from commander_game_engine.actions import AtomicAction
+from commander_game_engine.actions import AtomicAction, TurnCommand
 from commander_game_engine.game_state import GameState
 
 from .base import BaseAgent
@@ -37,10 +37,10 @@ class RandomAgent(BaseAgent):
     def _choose_action(
         self,
         state: GameState,
-        legal_actions: list[AtomicAction],
+        legal_actions: list[AtomicAction | TurnCommand],
         **kwargs: Any,
-    ) -> tuple[AtomicAction, dict[str, Any]]:
-        """Chọn ngẫu nhiên đồng đều một nước đi từ legal_actions."""
+    ) -> tuple[AtomicAction | TurnCommand, dict[str, Any]]:
+        """Chọn ngẫu nhiên đồng đều một nước đi từ legal_actions (gồm cả tổ hợp cõng quân)."""
         chosen_action = self.rng.choice(legal_actions)
         return chosen_action, {}
 
