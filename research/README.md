@@ -10,7 +10,7 @@ Tổ chức mã nguồn, cấu hình, dữ liệu và kết quả thực nghiệ
 - `environments/`: môi trường và bộ chuyển đổi trạng thái.
 - `training/`: quy trình huấn luyện.
 - `evaluation/`: đánh giá tác tử.
-- `experiments/configs/`: cấu hình thí nghiệm.
+- `experiments/common/`: cấu hình và các module dùng chung cho thực nghiệm.
 - `datasets/`: thông tin về dữ liệu nghiên cứu.
 - `checkpoints/`: vị trí lưu checkpoint cục bộ.
 - `runs/`: kết quả chạy và metadata.

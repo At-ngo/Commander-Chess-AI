@@ -1,0 +1,27 @@
+# Thư viện phục vụ nghiên cứu, thực nghiệm và đánh giá tác tử AI (research/)
+# Cài đặt gói nội bộ (`commander_game_engine`, `agents`) ở thư mục gốc repo trước bằng:
+#   pip install -e .
+
+# Tính toán số học và quản lý dữ liệu trận đấu
+numpy>=2.0.0
+pandas>=2.2.0
+
+# Trực quan hóa và biểu đồ thống kê
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Kiểm định thống kê, Bootstrap và khoảng tin cậy
+scipy>=1.13.0
+statsmodels>=0.14.0
+
+# Cấu hình, biến môi trường, profiling, tiến trình và theo dõi thực nghiệm
+PyYAML>=6.0.0
+python-dotenv>=1.0.0
+wandb>=0.20.0
+psutil>=5.9.0
+tqdm>=4.66.0
+
+# Thực thi notebook và kiểm thử tự động
+ipykernel>=6.29.0
+pytest>=8.0.0
+
