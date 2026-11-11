@@ -47,10 +47,10 @@ class TestInvariantFuzzing(unittest.TestCase):
                 )
                 occupied[piece.position] = pid
 
-        # 2. Bất biến cấm Tư lệnh đối mặt
+        # 2. Bất biến cấm Tư lệnh đối mặt (kể cả khi ngồi trên phương tiện cơ động)
         vis_occ = rules._visible_occupancy(state)
         self.assertFalse(
-            rules.commanders_face(vis_occ),
+            rules.commanders_face(vis_occ) or rules.state_commanders_face(state),
             f"Hai Tư lệnh bị lộ mặt trực tiếp ở lượt {turn_number} sau hành động {last_action}",
         )
 

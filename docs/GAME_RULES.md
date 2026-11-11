@@ -63,7 +63,7 @@
 
 | Quân | Di chuyển thường (ô trống) | Tấn công / Ăn quân | Đối tượng có thể tấn công | Tương tác Sông / Biển |
 |---|---|---|---|---|
-| **⋆ Tư lệnh** (`COMMANDER`) | `ORTHOGONAL`, không giới hạn đoạn đến khi gặp vật cản (cấm vào ô nguy hiểm/đối mặt) | `ORTHOGONAL`, **1 đoạn** (thế chỗ `@` hoặc `_@_` tàu biển/SCH) | **Mọi quân địch (kể cả Máy bay)** và tàu ở bờ/biển gần. Tuyệt đối cấm đi vào ô khiến Tư lệnh bị uy hiếp. | Qua được sông sâu. Không ra biển sâu. Ngồi trên `TANK`/`AIRCRAFT`/`NAVY`/`HEADQUARTERS` đều chắn đối mặt. |
+| **⋆ Tư lệnh** (`COMMANDER`) | `ORTHOGONAL`, không giới hạn đoạn đến khi gặp vật cản (cấm vào ô nguy hiểm/đối mặt) | `ORTHOGONAL`, **1 đoạn** (thế chỗ `@` hoặc `_@_` tàu biển/SCH) | **Mọi quân địch (kể cả Máy bay)** và tàu ở bờ/biển gần. Tuyệt đối cấm đi vào ô khiến Tư lệnh bị uy hiếp. | Qua được sông sâu. Không ra biển sâu. Chỉ `HEADQUARTERS` thường che chở khỏi đối mặt khi đã vào trong; cấm lên phương tiện/SCH trên đường nhìn Tư lệnh địch và cấm phương tiện đang chở Tư lệnh dừng trên đường nhìn Tư lệnh địch. |
 | **S Sở chỉ huy** (`HEADQUARTERS`) | Thường: Không di chuyển. Anh hùng: `ALL_8`, 1–2 đoạn | Thường: Không ăn. Anh hùng: `ALL_8`, 1–2 đoạn | Thường che chở Tư lệnh; chỉ phong Anh hùng khi chỉ còn 1 SCH duy nhất (+ Tư lệnh đã bước ra). | Cố định trên đất liền. |
 | **B Bộ binh** (`INFANTRY`) | `ORTHOGONAL`, 1 đoạn | `ORTHOGONAL`, 1 đoạn (thế chỗ) | Mọi quân mặt đất, **Máy bay**, tàu ở sát bờ. | **Bơi qua sông sâu được**. Lên được xe tăng, tàu chiến. |
 | **D Dân quân** (`MILITIA`) | `ALL_8` (8 hướng), 1 đoạn | `ALL_8`, 1 đoạn (thế chỗ) | Mọi quân mặt đất, **Máy bay**, tàu ở sát bờ. | Qua được sông sâu. Lên được xe tăng, tàu chiến. |
@@ -148,11 +148,17 @@ Vành đai lửa là **vùng cấm bay thụ động tự động kích hoạt**
 
 ### 7.1. Quy tắc Tối thượng: Cấm Tư lệnh Đối mặt nhau (Lộ mặt Tướng)
 - **Định nghĩa:** Hai Tư lệnh của hai phe **không bao giờ được cùng nằm trên một đường thẳng (cùng hàng ngang hoặc cùng cột dọc)** mà ở giữa **không có bất kỳ quân cờ đang đứng trực tiếp trên bàn cờ nào che chắn** (bất kể quân phe mình hay phe địch).
-- **Tư lệnh ngồi trên phương tiện đều chắn đối mặt:** Dù Tư lệnh đang trú trong `HEADQUARTERS` hay đang ngồi trên `TANK`, `AIRCRAFT`, `NAVY`, phương tiện đó che chắn thế đối mặt trực tiếp với Tư lệnh đối phương (Tư lệnh đang được chở/trú ẩn không bị tính là lộ mặt đối mặt với Tư lệnh địch, kể cả khi đứng trên cùng hàng/cột trống; đồng thời mọi quân đang đứng trực tiếp trên bàn cờ đều là vật cản hợp lệ). Tuy nhiên, chỉ Sở chỉ huy thường (`!is_hero`) mới che khỏi bị chiếu; Tư lệnh ngồi trên `TANK`/`AIRCRAFT`/`NAVY`/Sở chỉ huy Anh hùng vẫn tính là bị chiếu nếu ô phương tiện gốc bị uy hiếp.
+- **Quy tắc Đối mặt Khi Cõng / Trú Ẩn Tư lệnh (`DEC-021`):**
+  1. **Sở chỉ huy thường (`!is_hero`):** Chỉ Sở chỉ huy thường mới che chở Tư lệnh khỏi thế đối mặt và khỏi bị chiếu *khi Tư lệnh đã trú ẩn bên trong*; tuy nhiên Tư lệnh **không được lên (`BOARD`) Sở chỉ huy đang nằm trên đường nhìn thẳng không vật cản của Tư lệnh địch** (Q9).
+  2. **Phương tiện cơ động (`TANK`, `AIRCRAFT`, `NAVY`, kể cả cõng lồng nhau):**
+     - Tư lệnh **tuyệt đối không được lên (`BOARD`) phương tiện đang nằm trên đường nhìn thẳng (không có vật cản) của Tư lệnh đối phương** (kể cả trường hợp trước đó chính Tư lệnh hoặc phương tiện làm vật chắn).
+     - Khi phương tiện đang cõng Tư lệnh (hoặc thực hiện `PICKUP` đón Tư lệnh), phương tiện đó **tuyệt đối không được dừng/đứng trên vị trí nằm trong tầm nhìn thẳng không vật cản của Tư lệnh đối phương** (tính đối mặt tại vị trí phương tiện gốc). Phương tiện chỉ được phép đi/bay cắt ngang qua đường nhìn đó nếu không dừng lại trên tuyến đối mặt, hoặc phải đi một mình tách cargo (`carry_cargo = False`).
+     - Quân đứng giữa (phương tiện đang chở Tư lệnh) và Tư lệnh đối phương cũng bị ghim (`Pin`), không được rời khỏi đường thẳng chắn.
 - **Các nước đi bất hợp lệ do vi phạm quy tắc đối mặt:**
-  1. **Nước đi tự sát:** Tư lệnh không được tự di chuyển vào đường thẳng trống đối mặt Tư lệnh địch.
-  2. **Quân cản bị ghim (`Pin`):** Nếu trên hàng/cột giữa hai Tư lệnh chỉ có **duy nhất 1 quân cản**, thì quân cản đó **tuyệt đối không được di chuyển rời khỏi đường thẳng đó**.
-  3. **Ăn quân làm lộ mặt:** Không được ăn quân cản duy nhất giữa hai Tư lệnh nếu nước ăn đó làm trống đường đối mặt.
+  1. **Nước đi tự sát:** Tư lệnh không được tự di chuyển, lên phương tiện/Sở chỉ huy vào đường thẳng trống đối mặt Tư lệnh địch.
+  2. **Phương tiện chở Tư lệnh lộ mặt:** Xe tăng, Máy bay, Tàu chiến đang chở Tư lệnh không được dừng lại (hoặc đón Tư lệnh) trên đường thẳng trống đối mặt Tư lệnh địch.
+  3. **Quân cản bị ghim (`Pin`):** Nếu trên hàng/cột giữa hai Tư lệnh (kể cả khi Tư lệnh đang ngồi trong phương tiện cơ động) chỉ có **duy nhất 1 quân cản**, thì quân cản đó **tuyệt đối không được di chuyển rời khỏi đường thẳng đó**.
+  4. **Ăn quân làm lộ mặt:** Không được ăn quân cản duy nhất nếu nước ăn đó làm trống đường đối mặt.
 
 ### 7.1.1. Quy tắc An Toàn Tuyệt Đối Cho Tư Lệnh (King Safety — DEC-019 & DEC-020)
 - **Cấm tuyệt đối mọi nước đi để lộ Tư lệnh cho đối phương ăn:** Mọi nước đi khiến Tư lệnh phe mình rơi vào trạng thái bị đe dọa/chiếu ở trạng thái ngay sau nước đi đều **bị cấm hoàn toàn và loại bỏ khỏi `legal_actions`**. Không bao giờ fallback về nước đi để Tư lệnh bị ăn. Bao gồm:

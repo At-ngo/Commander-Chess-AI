@@ -378,7 +378,7 @@ def _execute_atomic_transition(
                 deepcopy(state), [], False, is_in_aa,
                 rules.reject(rules.RuleCode.COMMANDER_IN_CHECK, "Hành động khiến Tư lệnh phe mình bị tiêu diệt."),
             )
-        if rules.commanders_face(rules._visible_occupancy(next_state)):
+        if rules.state_commanders_face(next_state):
             return (
                 deepcopy(state), [], False, is_in_aa,
                 rules.reject(rules.RuleCode.COMMANDERS_FACING, "Hành động khiến hai Tư lệnh đối mặt trực tiếp."),

@@ -292,27 +292,92 @@ def _terrain_ok(
     return accept()
 
 
-def _visible_occupancy(state: GameState, removed: set[str] | None = None,
-                       moved: tuple[str, Position] | None = None) -> dict[Position, Piece]:
+def _visible_occupancy(
+    state: GameState,
+    removed: set[str] | None = None,
+    moved: tuple[str, Position] | None = None,
+    *,
+    attached: tuple[str, str] | None = None,
+    detached_carrier: str | None = None,
+    detached_origin: Position | None = None,
+) -> dict[Position, Piece]:
     """Tính vị trí quân độc lập dự kiến, không đụng tới dữ liệu gốc."""
     removed = removed or set()
     occupied: dict[Position, Piece] = {}
     for piece in state.pieces.values():
-        if piece.id in removed or piece.carried_by is not None:
+        if piece.id in removed:
             continue
-        pos = moved[1] if moved is not None and piece.id == moved[0] else piece.position
+        if attached is not None and piece.id == attached[0]:
+            continue
+        is_moved_piece = moved is not None and piece.id == moved[0]
+        if detached_carrier is not None and piece.carried_by == detached_carrier and not is_moved_piece:
+            if detached_origin is not None:
+                occupied.setdefault(detached_origin, piece)
+            continue
+        if piece.carried_by is not None and not is_moved_piece:
+            continue
+        pos = moved[1] if is_moved_piece else piece.position
         if pos is not None:
             occupied[pos] = piece
     return occupied
 
 
-def commanders_face(occupied: dict[Position, Piece]) -> bool:
-    """K02: phát hiện hai Tư lệnh trực diện, không có quân/vật chắn.
+def _effective_commander_pos(
+    state: GameState,
+    cmd: Piece | None,
+    *,
+    removed: set[str] | None = None,
+    moved: tuple[str, Position] | None = None,
+    attached: tuple[str, str] | None = None,
+    detached_carrier: str | None = None,
+    detached_origin: Position | None = None,
+) -> tuple[Position, str] | None:
+    """Trả về (tọa_độ_đối_mặt, root_id) của Tư lệnh, hoặc None nếu bị loại / trú Sở chỉ huy thường.
 
-    Mọi quân độc lập (kể cả Xe tăng, Máy bay, Tàu chiến, Sở chỉ huy, Anh hùng) đều chắn đường.
-    Tư lệnh đang được chở/trú ẩn (`carried_by is not None`) không nằm trong `occupied`
-    nên không bị đối mặt trực tiếp với Tư lệnh đối phương.
+    - Tư lệnh đứng độc lập: đối mặt tại vị trí chính nó.
+    - Tư lệnh ngồi trên phương tiện cơ động (TANK, AIRCRAFT, NAVY — trực tiếp hoặc lồng nhau):
+      đối mặt tại vị trí phương tiện gốc (vẫn bị cấm đứng trên đường nhìn thẳng Tư lệnh đối phương).
+    - Chỉ Sở chỉ huy thường (`HEADQUARTERS` chưa Anh hùng) che chắn đối mặt khi Tư lệnh đã ở bên trong (Q9).
     """
+    removed = removed or set()
+    if cmd is None or cmd.id in removed:
+        return None
+
+    def _parent_id(piece: Piece) -> str | None:
+        if attached is not None and piece.id == attached[0]:
+            return attached[1]
+        if moved is not None and piece.id == moved[0]:
+            return None
+        if detached_carrier is not None and piece.carried_by == detached_carrier:
+            return None
+        return piece.carried_by
+
+    cursor = cmd
+    visited: set[str] = set()
+    while (pid := _parent_id(cursor)) is not None:
+        if cursor.id in visited:
+            return None
+        visited.add(cursor.id)
+        parent = state.pieces.get(pid)
+        if parent is None or parent.id in removed:
+            return None
+        if parent.piece_type == PieceType.HEADQUARTERS and not parent.is_heroic:
+            return None
+        cursor = parent
+
+    if detached_carrier is not None and cursor.carried_by == detached_carrier:
+        pos = detached_origin
+    elif moved is not None and cursor.id == moved[0]:
+        pos = moved[1]
+    else:
+        pos = cursor.position
+    if pos is None:
+        return None
+    return pos, cursor.id
+
+
+def commanders_face(occupied: dict[Position, Piece]) -> bool:
+    """K02: phát hiện hai Tư lệnh trực diện trên bản đồ quân độc lập (hàm tương thích cũ)."""
     red = [pos for pos, p in occupied.items() if p.piece_type == PieceType.COMMANDER and p.owner == Player.RED]
     blue = [pos for pos, p in occupied.items() if p.piece_type == PieceType.COMMANDER and p.owner == Player.BLUE]
     if len(red) != 1 or len(blue) != 1:
@@ -323,10 +388,77 @@ def commanders_face(occupied: dict[Position, Piece]) -> bool:
     return all(pos not in occupied for pos in path_points(r, b))
 
 
-def validate_commander_exposure(state: GameState, *, removed: set[str] | None = None,
-                                moved: tuple[str, Position] | None = None) -> RuleResult:
-    """K02: kiểm tra trạng thái dự kiến sau khi mất quân chắn hoặc di chuyển."""
-    if commanders_face(_visible_occupancy(state, removed, moved)):
+def state_commanders_face(
+    state: GameState,
+    *,
+    removed: set[str] | None = None,
+    moved: tuple[str, Position] | None = None,
+    attached: tuple[str, str] | None = None,
+    detached_carrier: str | None = None,
+    detached_origin: Position | None = None,
+) -> bool:
+    """K02 (DEC-021): phát hiện hai Tư lệnh đối mặt trực tiếp (tính cả Tư lệnh ngồi phương tiện cơ động)."""
+    removed = removed or set()
+    red_cmd = next(
+        (p for p in state.pieces.values() if p.owner == Player.RED and p.piece_type == PieceType.COMMANDER),
+        None,
+    )
+    blue_cmd = next(
+        (p for p in state.pieces.values() if p.owner == Player.BLUE and p.piece_type == PieceType.COMMANDER),
+        None,
+    )
+    red_info = _effective_commander_pos(
+        state,
+        red_cmd,
+        removed=removed,
+        moved=moved,
+        attached=attached,
+        detached_carrier=detached_carrier,
+        detached_origin=detached_origin,
+    )
+    blue_info = _effective_commander_pos(
+        state,
+        blue_cmd,
+        removed=removed,
+        moved=moved,
+        attached=attached,
+        detached_carrier=detached_carrier,
+        detached_origin=detached_origin,
+    )
+    if red_info is None or blue_info is None:
+        return False
+    (r_pos, _r_root), (b_pos, _b_root) = red_info, blue_info
+    if r_pos[0] != b_pos[0] and r_pos[1] != b_pos[1]:
+        return False
+    occupied = _visible_occupancy(
+        state,
+        removed=removed,
+        moved=moved,
+        attached=attached,
+        detached_carrier=detached_carrier,
+        detached_origin=detached_origin,
+    )
+    return all(pos not in occupied for pos in path_points(r_pos, b_pos))
+
+
+def validate_commander_exposure(
+    state: GameState,
+    *,
+    removed: set[str] | None = None,
+    moved: tuple[str, Position] | None = None,
+    attached: tuple[str, str] | None = None,
+    detached_carrier: str | None = None,
+    detached_origin: Position | None = None,
+) -> RuleResult:
+    """K02: kiểm tra trạng thái dự kiến sau khi mất quân chắn, lên/đón xe hoặc di chuyển."""
+    if state_commanders_face(
+        state,
+        removed=removed,
+        moved=moved,
+        attached=attached,
+        detached_carrier=detached_carrier,
+        detached_origin=detached_origin,
+    ):
         return reject(RuleCode.COMMANDERS_FACING, "Hành động khiến hai Tư lệnh đối mặt trực tiếp.")
     return accept()
 
@@ -349,18 +481,31 @@ def is_hq_sheltering_commander(state: GameState, target: Piece) -> bool:
     )
 
 
-def is_hq_facing_enemy_commander(state: GameState, hq: Piece, enemy_cmd: Piece | None) -> bool:
-    """Kiểm tra Sở chỉ huy có đang đối mặt trực tiếp với Tư lệnh địch (chưa được chở) hay không."""
-    if enemy_cmd is None or enemy_cmd.carried_by is not None or enemy_cmd.position is None:
+def is_hq_facing_enemy_commander(
+    state: GameState,
+    hq: Piece,
+    enemy_cmd: Piece | None,
+    *,
+    ignore_piece_ids: set[str] | None = None,
+) -> bool:
+    """Kiểm tra phương tiện/Sở chỉ huy có đang nằm trên đường nhìn thẳng của Tư lệnh địch hay không."""
+    enemy_info = _effective_commander_pos(state, enemy_cmd)
+    if enemy_info is None:
         return False
-    hq_pos = _origin(state, hq)
+    epos, enemy_root_id = enemy_info
+    hq_root = _root_piece(state, hq)
+    if hq_root is None:
+        return False
+    hq_pos = _origin(state, hq_root)
     if hq_pos is None:
         return False
-    epos = enemy_cmd.position
     if hq_pos[0] != epos[0] and hq_pos[1] != epos[1]:
         return False
+    ignored = {hq.id, hq_root.id, enemy_root_id} | (ignore_piece_ids or set())
+    if enemy_cmd is not None:
+        ignored.add(enemy_cmd.id)
     return all(
-        (occ := state.get_piece_at(pt)) is None or occ.id in (hq.id, enemy_cmd.id)
+        (occ := state.get_piece_at(pt)) is None or occ.id in ignored
         for pt in path_points(hq_pos, epos)
     )
 
@@ -628,11 +773,11 @@ def validate_structural_action(state: GameState, action: AtomicAction) -> RuleRe
         board_chk = can_board(state, piece, target)
         if not board_chk.valid:
             return board_chk
-        if piece.piece_type == PieceType.COMMANDER and target.piece_type == PieceType.HEADQUARTERS:
+        if piece.piece_type == PieceType.COMMANDER:
             enemy = Player.BLUE if piece.owner == Player.RED else Player.RED
             enemy_cmd = next((p for p in state.pieces.values() if p.owner == enemy and p.piece_type == PieceType.COMMANDER), None)
-            if is_hq_facing_enemy_commander(state, target, enemy_cmd):
-                return reject(RuleCode.COMMANDERS_FACING, "Không thể trú vào Sở chỉ huy đang đối mặt Tư lệnh địch.")
+            if is_hq_facing_enemy_commander(state, target, enemy_cmd, ignore_piece_ids={piece.id}):
+                return reject(RuleCode.COMMANDERS_FACING, "Không thể lên phương tiện/Sở chỉ huy đang đối mặt Tư lệnh địch.")
 
     elif action.action_type == ActionType.PICKUP:
         if piece.carried_by is not None:
@@ -738,30 +883,48 @@ def validate_structural_action(state: GameState, action: AtomicAction) -> RuleRe
     if piece.piece_type == PieceType.COMMANDER and action.action_type in (ActionType.MOVE, ActionType.CAPTURE, ActionType.BOARD):
         removed = {target.id} if capture and target is not None else set()
         for step_pos in (*path_points(start, action.end), action.end):
-            moved = None if action.action_type == ActionType.BOARD and step_pos == action.end else (piece.id, step_pos)
-            rem = removed | ({piece.id} if action.action_type == ActionType.BOARD and step_pos == action.end else set())
             if step_pos != action.end:
                 rem = set()
                 moved = (piece.id, step_pos)
-            exp = validate_commander_exposure(state, removed=rem, moved=moved)
+                att = None
+            elif action.action_type == ActionType.BOARD:
+                rem = set()
+                moved = None
+                att = (piece.id, target.id)
+            else:
+                rem = removed
+                moved = (piece.id, step_pos)
+                att = None
+            exp = validate_commander_exposure(state, removed=rem, moved=moved, attached=att)
             if not exp.valid:
                 return exp
 
     # Kiểm tra Tư lệnh đối mặt sau nước đi
     if action.action_type == ActionType.BOARD:
-        exp = validate_commander_exposure(state, removed={piece.id})
+        exp = validate_commander_exposure(state, attached=(piece.id, target.id))
     elif action.action_type == ActionType.PICKUP:
-        exp = validate_commander_exposure(state, removed={target.id}, moved=(piece.id, action.end))
+        exp = validate_commander_exposure(state, moved=(piece.id, action.end), attached=(target.id, piece.id))
     elif action.action_type == ActionType.MOVE:
         if (not action.carry_cargo or piece.piece_type == PieceType.HEADQUARTERS) and piece.cargo:
             # Quân cõng / Tư lệnh ở lại vị trí start nên vị trí start vẫn có quân chắn
-            exp = validate_commander_exposure(state, moved=None)
+            exp = validate_commander_exposure(
+                state,
+                moved=(piece.id, action.end),
+                detached_carrier=piece.id,
+                detached_origin=start,
+            )
         else:
             exp = validate_commander_exposure(state, moved=(piece.id, action.end))
     elif action.action_type == ActionType.CAPTURE:
         removed_ids = {target.id} if not is_hq_sheltering_commander(state, target) else set()
         if (not action.carry_cargo or piece.piece_type == PieceType.HEADQUARTERS) and piece.cargo:
-            exp = validate_commander_exposure(state, removed=removed_ids, moved=None)
+            exp = validate_commander_exposure(
+                state,
+                removed=removed_ids,
+                moved=(piece.id, action.end),
+                detached_carrier=piece.id,
+                detached_origin=start,
+            )
         else:
             exp = validate_commander_exposure(state, removed=removed_ids, moved=(piece.id, action.end))
     else:  # BOMB / BOMBARD

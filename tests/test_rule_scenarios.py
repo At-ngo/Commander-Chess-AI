@@ -528,8 +528,9 @@ class TestConfirmedRulesDec020(unittest.TestCase):
                 f"{ptype.value} phải có khả năng tấn công Máy bay",
             )
 
-    def test_carried_commander_inside_tank_aircraft_navy_shields_facing(self) -> None:
-        """Tư lệnh ngồi trên Xe tăng, Máy bay, Tàu chiến đều chắn đối mặt với Tư lệnh đối phương."""
+    def test_carried_commander_inside_mobile_carrier_faces_enemy_commander(self) -> None:
+        """DEC-021: Tư lệnh ngồi trên Xe tăng/Máy bay/Tàu chiến vẫn không được đối mặt trực tiếp Tư lệnh địch;
+        chỉ Sở chỉ huy thường che chắn khi đã vào trong, còn khi lên phương tiện trên đường nhìn đều bị cấm."""
         for carrier_type, cpos in (
             (PieceType.TANK, (2, 6)),
             (PieceType.AIRCRAFT, (2, 6)),
@@ -547,10 +548,118 @@ class TestConfirmedRulesDec020(unittest.TestCase):
                 position=None,
                 carried_by="red_carrier",
             )
-            self.assertTrue(
-                rules.validate_commander_exposure(state).valid,
-                f"Tư lệnh trên {carrier_type.value} phải được che chắn khỏi đối mặt trực tiếp",
+            res = rules.validate_commander_exposure(state)
+            self.assertFalse(
+                res.valid,
+                f"Tư lệnh trên {carrier_type.value} tại đường nhìn Tư lệnh địch phải bị cấm ({res})",
             )
+            self.assertEqual(res.code, rules.RuleCode.COMMANDERS_FACING)
+
+            # Có vật cản ở giữa thì hợp lệ
+            state.add_piece(Piece(id="blocker", piece_type=PieceType.INFANTRY, owner=Player.RED, position=(4, blue_col)))
+            self.assertTrue(rules.validate_commander_exposure(state).valid)
+
+    def test_commander_cannot_board_exposed_carrier_or_move_carrier_into_enemy_los(self) -> None:
+        """DEC-021:
+        1) Tư lệnh không được lên phương tiện (TANK/AIRCRAFT/NAVY/HQ) đang nằm trên đường nhìn Tư lệnh địch.
+        2) Phương tiện đang chở Tư lệnh (kể cả lồng nhau) không được đứng vào đường nhìn Tư lệnh địch,
+           nhưng được phép đi/bay cắt ngang qua nếu không dừng lại trên đường nhìn đó.
+        3) Quân đang chắn giữa (phương tiện chở Tư lệnh) và Tư lệnh địch bị ghim, không thể rời cột/lên xe."""
+        # Case 1: Tư lệnh đứng lệch cột muốn BOARD Xe tăng đang trên cột nhìn Tư lệnh địch
+        s1 = GameState(board=self.board, current_player=Player.RED)
+        s1.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 6)))
+        s1.add_piece(Piece(id="red_tank", piece_type=PieceType.TANK, owner=Player.RED, position=(2, 6)))
+        s1.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(2, 5)))
+        board_exposed = AtomicAction(
+            action_type=ActionType.BOARD,
+            piece_id="red_cmd",
+            start=(2, 5),
+            end=(2, 6),
+            target_piece_id="red_tank",
+            carrier_id="red_tank",
+        )
+        verdict = rules.validate_action(s1, board_exposed)
+        self.assertFalse(verdict.valid)
+        self.assertEqual(verdict.code, rules.RuleCode.COMMANDERS_FACING)
+
+        # Case 1b: Tư lệnh núp ngay sau Xe tăng đang chắn đường; lên Xe tăng sẽ mất thế chắn -> CẤM
+        s1b = GameState(board=self.board, current_player=Player.RED)
+        s1b.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 6)))
+        s1b.add_piece(Piece(id="red_tank", piece_type=PieceType.TANK, owner=Player.RED, position=(2, 6)))
+        s1b.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(1, 6)))
+        self.assertFalse(
+            rules.validate_action(
+                s1b,
+                AtomicAction(
+                    action_type=ActionType.BOARD,
+                    piece_id="red_cmd",
+                    start=(1, 6),
+                    end=(2, 6),
+                    target_piece_id="red_tank",
+                    carrier_id="red_tank",
+                ),
+            ).valid
+        )
+        # Và Xe tăng cũng không được PICKUP Tư lệnh ở (1, 6) nếu làm mất vật cản -> đứng đối mặt Tư lệnh địch
+        self.assertFalse(
+            rules.validate_action(
+                s1b,
+                AtomicAction(
+                    action_type=ActionType.PICKUP,
+                    piece_id="red_tank",
+                    start=(2, 6),
+                    end=(1, 6),
+                    target_piece_id="red_cmd",
+                    passenger_id="red_cmd",
+                ),
+            ).valid
+        )
+
+        # Case 2: Máy bay chở Tư lệnh KHÔNG được đáp vào ô trên đường nhìn Tư lệnh địch, nhưng ĐƯỢC bay cắt ngang qua
+        s2 = GameState(board=self.board, current_player=Player.RED)
+        s2.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 6)))
+        s2.add_piece(Piece(id="red_air", piece_type=PieceType.AIRCRAFT, owner=Player.RED, position=(2, 5)))
+        s2.pieces["red_air"].cargo = ["red_cmd"]
+        s2.pieces["red_cmd"] = Piece(
+            id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=None, carried_by="red_air"
+        )
+        land_on_los = AtomicAction(
+            action_type=ActionType.MOVE, piece_id="red_air", start=(2, 5), end=(2, 6), carry_cargo=True
+        )
+        cross_over_los = AtomicAction(
+            action_type=ActionType.MOVE, piece_id="red_air", start=(2, 5), end=(2, 7), carry_cargo=True
+        )
+        self.assertFalse(rules.validate_action(s2, land_on_los).valid)
+        self.assertTrue(rules.validate_action(s2, cross_over_los).valid)
+
+        # Nếu bỏ lại Tư lệnh ở (2, 5) (carry_cargo=False), Máy bay đi một mình vào (2, 6) thì HỢP LỆ
+        solo_to_los = AtomicAction(
+            action_type=ActionType.MOVE, piece_id="red_air", start=(2, 5), end=(2, 6), carry_cargo=False
+        )
+        self.assertTrue(rules.validate_action(s2, solo_to_los).valid)
+
+        # Case 3: Cõng lồng nhau NAVY -> TANK -> COMMANDER vẫn không được lộ mặt & quân chắn giữa bị ghim
+        s3 = GameState(board=self.board, current_player=Player.RED)
+        s3.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 2)))
+        s3.add_piece(Piece(id="red_navy", piece_type=PieceType.NAVY, owner=Player.RED, position=(3, 2)))
+        s3.pieces["red_navy"].cargo = ["red_tank"]
+        s3.pieces["red_tank"] = Piece(
+            id="red_tank", piece_type=PieceType.TANK, owner=Player.RED, position=None, carried_by="red_navy", cargo=["red_cmd"]
+        )
+        s3.pieces["red_cmd"] = Piece(
+            id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=None, carried_by="red_tank"
+        )
+        self.assertFalse(rules.validate_commander_exposure(s3).valid)
+
+        s3.add_piece(Piece(id="red_pin", piece_type=PieceType.INFANTRY, owner=Player.RED, position=(4, 2)))
+        self.assertTrue(rules.validate_commander_exposure(s3).valid)
+        # Bộ binh đang chắn giữa Tàu chở (Xe tăng -> Tư lệnh) và Tư lệnh địch bị ghim không thể rời cột 2
+        self.assertFalse(
+            rules.validate_action(
+                s3,
+                AtomicAction(action_type=ActionType.MOVE, piece_id="red_pin", start=(4, 2), end=(4, 3)),
+            ).valid
+        )
 
     def test_delayed_solitary_hq_promotion(self) -> None:
         """Tư lệnh núp trong SCH duy nhất khi quân khác bị ăn -> SCH chưa phong; bước ra thì phong ngay lập tức."""
