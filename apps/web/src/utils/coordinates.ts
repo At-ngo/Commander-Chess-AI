@@ -24,10 +24,15 @@ export const BOARD_GEOMETRY = {
  * Thus: svgY = 880 - y * (819 / 11)
  *       svgX = 63 + x * 88
  */
-export function boardToSvgPoint(pos: Position): { svgX: number; svgY: number } {
+export function boardToSvgPoint(
+  pos: Position,
+  flipped: boolean = false
+): { svgX: number; svgY: number } {
+  const displayX = flipped ? BOARD_GEOMETRY.totalCols - 1 - pos.x : pos.x;
+  const displayY = flipped ? BOARD_GEOMETRY.totalRows - 1 - pos.y : pos.y;
   return {
-    svgX: BOARD_GEOMETRY.xOrigin + pos.x * BOARD_GEOMETRY.xStep,
-    svgY: BOARD_GEOMETRY.yBottom - pos.y * BOARD_GEOMETRY.yStep,
+    svgX: BOARD_GEOMETRY.xOrigin + displayX * BOARD_GEOMETRY.xStep,
+    svgY: BOARD_GEOMETRY.yBottom - displayY * BOARD_GEOMETRY.yStep,
   };
 }
 

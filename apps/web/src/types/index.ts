@@ -94,6 +94,17 @@ export interface MoveRecord {
   timestamp: number;
 }
 
+export interface MatchSnapshot {
+  snapshotIndex: number;
+  pieces: PieceState[];
+  scores: { RED: number; BLUE: number };
+  capturedPieces: PieceState[];
+  sideToMove: Side;
+  lastMove: MoveRecord | null;
+  activeCompound: ActiveCompoundState | null;
+  movesCount: number;
+}
+
 export type TerminationReason =
   | 'CHECKMATE'
   | 'STALEMATE'

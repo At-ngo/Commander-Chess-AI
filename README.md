@@ -1,4 +1,4 @@
-﻿# Commander Chess AI — Nền tảng nghiên cứu AI Cờ Tư Lệnh
+# Commander Chess AI — Nền tảng nghiên cứu AI Cờ Tư Lệnh
 
 ## Dự án
 
@@ -79,7 +79,7 @@ Commander-Chess-AI/
 │   ├── environments/README.md
 │   ├── training/README.md
 │   ├── evaluation/README.md
-│   ├── experiments/configs/README.md
+│   ├── experiments/common/README.md
 │   ├── datasets/README.md
 │   ├── checkpoints/.gitkeep
 │   └── runs/README.md

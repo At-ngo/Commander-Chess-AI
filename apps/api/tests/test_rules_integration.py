@@ -6,6 +6,8 @@ from apps.api.src.models.enums import Side, PieceType, ActionType, EventType, Ga
 from apps.api.src.models.common import Position
 from apps.api.src.models.game import PieceState, LegalAction, ActionRequest, GameState
 from apps.api.src.services.engine_adapter import (
+    MockEngineAdapter,
+    can_board_carrier,
     default_engine_adapter,
     is_commanders_facing,
     is_hq_facing_enemy_commander,
@@ -1887,11 +1889,19 @@ class TestConfirmedRulesDec020(unittest.TestCase):
                 f"Quân {cand.type.value} phải ăn được Máy bay địch",
             )
 
-    def test_carried_commander_shields_facing_while_carrier_exposes_check(self):
+    def test_carried_commander_inside_mobile_carrier_still_faces_enemy_and_exposes_check(self):
+        from apps.api.src.services.engine_adapter import MockEngineAdapter
+
         b_cmd = PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=6, y=11))
         for c_type, c_x in [(PieceType.TANK, 6), (PieceType.AIRCRAFT, 6), (PieceType.NAVY, 2)]:
             b_cmd_cur = b_cmd if c_x == 6 else b_cmd.model_copy(update={"position": Position(x=2, y=11)})
-            carrier = PieceState(piece_id="r_car", side=Side.RED, type=c_type, position=Position(x=c_x, y=3))
+            carrier = PieceState(
+                piece_id="r_car",
+                side=Side.RED,
+                type=c_type,
+                position=Position(x=c_x, y=3),
+                carrying_piece_ids=["r_cmd"],
+            )
             r_cmd = PieceState(
                 piece_id="r_cmd",
                 side=Side.RED,
@@ -1899,10 +1909,18 @@ class TestConfirmedRulesDec020(unittest.TestCase):
                 position=Position(x=c_x, y=3),
                 carried_by_id="r_car",
             )
-            self.assertFalse(
+            self.assertTrue(
                 is_commanders_facing([r_cmd, carrier, b_cmd_cur]),
-                f"Tư lệnh trên {c_type.value} phải chặn đối mặt trực tiếp",
+                f"Tư lệnh trên {c_type.value} nằm trên đường nhìn Tư lệnh địch vẫn phạm luật đối mặt",
             )
+            blocker = PieceState(
+                piece_id="r_blk",
+                side=Side.RED,
+                type=PieceType.INFANTRY,
+                position=Position(x=c_x, y=7),
+            )
+            self.assertFalse(is_commanders_facing([r_cmd, carrier, b_cmd_cur, blocker]))
+
             # Khi có quân Xanh uy hiếp ô gốc của phương tiện, Tư lệnh vẫn bị tính là đang bị chiếu
             attacker = PieceState(
                 piece_id="b_atk",
@@ -1913,6 +1931,64 @@ class TestConfirmedRulesDec020(unittest.TestCase):
             self.assertTrue(
                 is_commander_in_check([r_cmd, carrier, b_cmd_cur, attacker], Side.RED),
                 f"Tư lệnh ngồi trong {c_type.value} vẫn bị chiếu khi ô gốc bị công kích",
+            )
+
+        # Kiểm tra cả AuthoritativeEngineAdapter và MockEngineAdapter đều cấm:
+        # 1) Tư lệnh lên phương tiện đang nằm trên đường nhìn Tư lệnh địch
+        # 2) Phương tiện đang chở Tư lệnh dừng vào đường nhìn Tư lệnh địch (nhưng được đi qua nếu không dừng lại)
+        mock_adapter = MockEngineAdapter()
+        for adapter_name, adapter in [("Authoritative", default_engine_adapter), ("Mock", mock_adapter)]:
+            # 1) BOARD vào TANK/AIRCRAFT nằm trên đường nhìn Tư lệnh địch
+            for c_type in (PieceType.TANK, PieceType.AIRCRAFT):
+                st_board = self._state(
+                    [
+                        PieceState(piece_id="r_cmd", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=5, y=2)),
+                        PieceState(piece_id="r_car", side=Side.RED, type=c_type, position=Position(x=6, y=2)),
+                        PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=6, y=11)),
+                    ],
+                    side_to_move=Side.RED,
+                )
+                acts_board = adapter.get_legal_actions(st_board)
+                self.assertFalse(
+                    any(a.piece_id == "r_cmd" and a.action_type == ActionType.BOARD and a.target_piece_id == "r_car" for a in acts_board),
+                    f"[{adapter_name}] Cấm Tư lệnh lên {c_type.value} đang trên đường nhìn Tư lệnh địch",
+                )
+
+            # 2) Máy bay chở Tư lệnh không được đáp vào (6, 2), nhưng được bay ngang qua tới (7, 2)
+            st_move = self._state(
+                [
+                    PieceState(
+                        piece_id="r_air",
+                        side=Side.RED,
+                        type=PieceType.AIRCRAFT,
+                        position=Position(x=5, y=2),
+                        carrying_piece_ids=["r_cmd"],
+                    ),
+                    PieceState(
+                        piece_id="r_cmd",
+                        side=Side.RED,
+                        type=PieceType.COMMANDER,
+                        position=Position(x=5, y=2),
+                        carried_by_id="r_air",
+                    ),
+                    PieceState(piece_id="b_cmd", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=6, y=11)),
+                ],
+                side_to_move=Side.RED,
+            )
+            acts_move = adapter.get_legal_actions(st_move)
+            self.assertFalse(
+                any(
+                    a.piece_id == "r_air" and a.to_pos == Position(x=6, y=2) and a.carry_cargo is True
+                    for a in acts_move
+                ),
+                f"[{adapter_name}] Cấm phương tiện chở Tư lệnh dừng trên đường nhìn Tư lệnh địch",
+            )
+            self.assertTrue(
+                any(
+                    a.piece_id == "r_air" and a.to_pos == Position(x=7, y=2) and a.carry_cargo is True
+                    for a in acts_move
+                ),
+                f"[{adapter_name}] Cho phép Máy bay chở Tư lệnh bay xuyên qua cột nhìn khi không dừng lại",
             )
 
     def test_delayed_solitary_hq_promotion(self):
@@ -2021,6 +2097,83 @@ class TestConfirmedRulesDec020(unittest.TestCase):
             self.assertIsNotNone(act)
             seen_actions.add((act.action_type, act.piece_id))
         self.assertGreaterEqual(len(seen_actions), 2)
+
+    def test_nested_ktd_capacity_and_carry_cargo_event_details(self):
+        # K(T(D)) đã chiếm đủ 2/2 sức chứa của Máy bay -> cấm nhận/cõng thêm quân thứ 3
+        r_cmd = PieceState(piece_id="red_commander_1", side=Side.RED, type=PieceType.COMMANDER, position=Position(x=6, y=0))
+        b_cmd = PieceState(piece_id="blue_commander_1", side=Side.BLUE, type=PieceType.COMMANDER, position=Position(x=9, y=11))
+        k = PieceState(
+            piece_id="red_aircraft_1",
+            side=Side.RED,
+            type=PieceType.AIRCRAFT,
+            position=Position(x=5, y=4),
+            carrying_piece_ids=["red_tank_1"],
+        )
+        t = PieceState(
+            piece_id="red_tank_1",
+            side=Side.RED,
+            type=PieceType.TANK,
+            position=Position(x=5, y=4),
+            carried_by_id="red_aircraft_1",
+            carrying_piece_ids=["red_militia_1"],
+        )
+        d = PieceState(
+            piece_id="red_militia_1",
+            side=Side.RED,
+            type=PieceType.MILITIA,
+            position=Position(x=5, y=4),
+            carried_by_id="red_tank_1",
+        )
+        inf = PieceState(piece_id="red_infantry_1", side=Side.RED, type=PieceType.INFANTRY, position=Position(x=5, y=5))
+        all_pieces = [r_cmd, b_cmd, k, t, d, inf]
+
+        self.assertFalse(can_board_carrier(inf, k, all_pieces))
+        for adapter_name, adapter in (
+            ("Authoritative", default_engine_adapter),
+            ("Mock", MockEngineAdapter()),
+        ):
+            st = self._state(all_pieces, side_to_move=Side.RED)
+            legal = adapter.get_legal_actions(st)
+            self.assertFalse(
+                any(
+                    a.action_type == ActionType.BOARD
+                    and (
+                        (a.piece_id == "red_aircraft_1" and a.target_piece_id == "red_infantry_1")
+                        or (a.piece_id == "red_infantry_1" and a.target_piece_id == "red_aircraft_1")
+                    )
+                    for a in legal
+                ),
+                f"[{adapter_name}] Cấm K(T(D)) nhận thêm quân thứ 3",
+            )
+
+            # Tách lẻ solo (carry_cargo=False) từ K(T(D)) phải ghi lại carry_cargo=False vào event.details
+            solo_act = next(
+                a
+                for a in legal
+                if a.piece_id == "red_aircraft_1"
+                and a.action_type == ActionType.MOVE
+                and a.carry_cargo is False
+                and a.to_pos == Position(x=4, y=4)
+            )
+            next_st, ev = adapter.apply_action(
+                st,
+                ActionRequest(
+                    action_type=solo_act.action_type,
+                    piece_id=solo_act.piece_id,
+                    to_pos=solo_act.to_pos,
+                    target_piece_id=solo_act.target_piece_id,
+                    state_version=st.state_version,
+                    carry_cargo=False,
+                    is_compound_action=True,
+                ),
+            )
+            self.assertIn("carry_cargo", ev.details, f"[{adapter_name}] Thiếu carry_cargo trong event.details")
+            self.assertFalse(ev.details["carry_cargo"])
+            t_after = next(p for p in next_st.pieces if p.piece_id == "red_tank_1")
+            d_after = next(p for p in next_st.pieces if p.piece_id == "red_militia_1")
+            self.assertIsNone(t_after.carried_by_id)
+            self.assertEqual(d_after.carried_by_id, "red_tank_1")
+            self.assertEqual(t_after.position, Position(x=5, y=4))
 
 
 if __name__ == "__main__":

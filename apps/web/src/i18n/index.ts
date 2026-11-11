@@ -25,6 +25,8 @@ export interface Translations {
     playHumanDesc: string;
     aiVsAiTitle: string;
     aiVsAiDesc: string;
+    analysisTitle: string;
+    analysisDesc: string;
     rulesTitle: string;
     rulesDesc: string;
     statusReady: string;
@@ -86,6 +88,59 @@ export interface Translations {
     modeHumanVsHuman: string;
     modeLabel: string;
     aiBotName: string;
+    navFirst: string;
+    navPrev: string;
+    navNext: string;
+    navLast: string;
+    reviewingHistoryBanner: string;
+    returnToLiveBtn: string;
+    flipBoard: string;
+    stepLabel: string;
+  };
+  analysis: {
+    title: string;
+    subtitle: string;
+    inputTitle: string;
+    inputHint: string;
+    placeholder: string;
+    btnAnalyze: string;
+    btnClear: string;
+    btnUploadFile: string;
+    btnLoadSampleNotation: string;
+    btnLoadSampleAiJson: string;
+    btnAutoPlay: string;
+    btnPause: string;
+    speedLabel: string;
+    matchMetaTitle: string;
+    detectedFormat: string;
+    redAgent: string;
+    blueAgent: string;
+    winnerLabel: string;
+    reasonLabel: string;
+    seedLabel: string;
+    totalMovesLabel: string;
+    telemetryTitle: string;
+    noTelemetry: string;
+    ruleTriggered: string;
+    heuristicScore: string;
+    decisionTime: string;
+    nodesVisited: string;
+    simulations: string;
+    selectedActionRaw: string;
+    heuristicBreakdown: string;
+    moveListTitle: string;
+    initialBoardLabel: string;
+    emptyPrompt: string;
+    warningsTitle: string;
+    copyCurrentNotation: string;
+    useCurrentMatch: string;
+    tagBoard: string;
+    tagPickup: string;
+    tagCarrying: string;
+    tagSoloSplit: string;
+    tagDeploy: string;
+    tagEndCompound: string;
+    compoundActiveBadge: string;
   };
   pieces: Record<string, string>;
 }
@@ -98,7 +153,7 @@ export const translations: Record<Language, Translations> = {
       home: 'Trang chủ',
       play: 'Bàn cờ',
       aiVsAi: 'AI vs AI',
-      replays: 'Xem lại ván',
+      replays: 'Phân tích ván',
       stats: 'Thống kê',
       rules: 'Luật chơi',
     },
@@ -117,6 +172,8 @@ export const translations: Record<Language, Translations> = {
       playHumanDesc: 'Thi đấu trực tiếp hai người trên cùng một thiết bị với đầy đủ 38 quân cờ.',
       aiVsAiTitle: 'AI đấu với AI',
       aiVsAiDesc: 'Quan sát các trận đấu tự động giữa hai tác tử AI để đánh giá và thu thập dữ liệu nghiên cứu.',
+      analysisTitle: 'Game Analysis Record',
+      analysisDesc: 'Dán biên bản ván đấu hoặc log JSON của AI vs AI để phát lại từng nước đi và phân tích quyết định.',
       rulesTitle: 'Luật chơi & Cẩm nang',
       rulesDesc: 'Tra cứu quy định vượt sông, vùng biển, hành quân cõng quân và vành đai phòng không.',
       statusReady: 'Sẵn sàng',
@@ -178,6 +235,59 @@ export const translations: Record<Language, Translations> = {
       modeHumanVsHuman: 'Hai người chơi',
       modeLabel: 'Chế độ đối kháng',
       aiBotName: 'Random AI (Phe Xanh)',
+      navFirst: 'Đầu',
+      navPrev: 'Lùi',
+      navNext: 'Tiến',
+      navLast: 'Cuối',
+      reviewingHistoryBanner: 'Đang xem lại lịch sử ván đấu — nhấn "Cuối" để quay lại bàn cờ trực tiếp',
+      returnToLiveBtn: 'Quay lại trực tiếp (Cuối)',
+      flipBoard: 'Xoay bàn cờ',
+      stepLabel: 'Bước',
+    },
+    analysis: {
+      title: 'Game Analysis Record',
+      subtitle: 'Dán biên bản bàn cờ (MoveHistory / COTULENH-NOTATION) hoặc JSON log trận AI vs AI (game_records/*.json) để phát lại và phân tích từng nước đi.',
+      inputTitle: 'Nạp biên bản / Log trận đấu',
+      inputHint: 'Hỗ trợ: JSON log từ research (game_XXXX.json), chuỗi selected_action (MOVE:... / CMD:END_TURN), biên bản sao chép từ Bàn cờ, hoặc định dạng COTULENH-NOTATION.',
+      placeholder: 'Dán biên bản nước đi hoặc nội dung file game_0001.json vào đây...',
+      btnAnalyze: 'Phân tích & Phát lại',
+      btnClear: 'Xóa',
+      btnUploadFile: 'Tải tệp (.json/.txt/.ctn)',
+      btnLoadSampleNotation: 'Nạp mẫu biên bản chữ',
+      btnLoadSampleAiJson: 'Nạp mẫu log AI vs AI (JSON)',
+      btnAutoPlay: 'Tự động phát',
+      btnPause: 'Tạm dừng',
+      speedLabel: 'Tốc độ',
+      matchMetaTitle: 'Thông tin trận đấu',
+      detectedFormat: 'Định dạng nhận diện',
+      redAgent: 'Phe Đỏ',
+      blueAgent: 'Phe Xanh',
+      winnerLabel: 'Kết quả',
+      reasonLabel: 'Lý do kết thúc',
+      seedLabel: 'Seed',
+      totalMovesLabel: 'Số bước hợp lệ',
+      telemetryTitle: 'Chi tiết quyết định AI tại bước đang xem',
+      noTelemetry: 'Bước này không có thông số telemetry AI (biên bản ký pháp thuần hoặc trạng thái xuất phát).',
+      ruleTriggered: 'Luật kích hoạt',
+      heuristicScore: 'Điểm Heuristic',
+      decisionTime: 'Thời gian nghĩ',
+      nodesVisited: 'Số nút duyệt',
+      simulations: 'Số mô phỏng',
+      selectedActionRaw: 'Hành động gốc',
+      heuristicBreakdown: 'Thành phần Heuristic',
+      moveListTitle: 'Danh sách nước đi phân tích',
+      initialBoardLabel: 'Trạng thái xuất phát (0)',
+      emptyPrompt: 'Chưa có dữ liệu phân tích. Dán biên bản hoặc nạp mẫu thử ở trên rồi bấm "Phân tích & Phát lại".',
+      warningsTitle: 'Lưu ý phân tích',
+      copyCurrentNotation: 'Sao chép biên bản đã chuẩn hóa',
+      useCurrentMatch: 'Nạp từ ván đang đánh',
+      tagBoard: 'Lên xe',
+      tagPickup: 'Đón quân',
+      tagCarrying: 'Cõng',
+      tagSoloSplit: 'Tách lẻ',
+      tagDeploy: 'Triển khai',
+      tagEndCompound: 'Chốt tổ hợp',
+      compoundActiveBadge: 'Đang mở lượt tổ hợp',
     },
     pieces: {
       COMMANDER: 'Tư lệnh',
@@ -200,7 +310,7 @@ export const translations: Record<Language, Translations> = {
       home: 'Home',
       play: 'Board',
       aiVsAi: 'AI vs AI',
-      replays: 'Replays',
+      replays: 'Game Analysis',
       stats: 'Statistics',
       rules: 'Rules',
     },
@@ -219,6 +329,8 @@ export const translations: Record<Language, Translations> = {
       playHumanDesc: 'Local two-player hotseat mode with the full 38-piece standard starting deployment.',
       aiVsAiTitle: 'AI vs AI Spectator',
       aiVsAiDesc: 'Spectate automated matches between AI algorithms to analyze thinking time and outcomes.',
+      analysisTitle: 'Game Analysis Record',
+      analysisDesc: 'Paste match notation or AI vs AI JSON logs to replay every move and inspect agent decisions.',
       rulesTitle: 'Rules & Tactics',
       rulesDesc: 'Official regulations on river crossings, naval corridors, mechanized transport, and anti-air rings.',
       statusReady: 'Ready',
@@ -280,6 +392,59 @@ export const translations: Record<Language, Translations> = {
       modeHumanVsHuman: 'Two Players',
       modeLabel: 'Combat Mode',
       aiBotName: 'Random AI (Blue Force)',
+      navFirst: 'First',
+      navPrev: 'Prev',
+      navNext: 'Next',
+      navLast: 'Last',
+      reviewingHistoryBanner: 'Reviewing historical move — press "Last" to return to live play',
+      returnToLiveBtn: 'Back to Live (Last)',
+      flipBoard: 'Flip Board',
+      stepLabel: 'Step',
+    },
+    analysis: {
+      title: 'Game Analysis Record',
+      subtitle: 'Paste board notation (MoveHistory / COTULENH-NOTATION) or AI vs AI JSON logs (game_records/*.json) to replay and inspect every decision.',
+      inputTitle: 'Load Match Record / Log',
+      inputHint: 'Supports: Research JSON logs (game_XXXX.json), selected_action strings (MOVE:... / CMD:END_TURN), copied Action Log text, or COTULENH-NOTATION.',
+      placeholder: 'Paste move notation or game_0001.json contents here...',
+      btnAnalyze: 'Analyze & Replay',
+      btnClear: 'Clear',
+      btnUploadFile: 'Upload File (.json/.txt/.ctn)',
+      btnLoadSampleNotation: 'Load Sample Notation',
+      btnLoadSampleAiJson: 'Load Sample AI vs AI JSON',
+      btnAutoPlay: 'Auto Play',
+      btnPause: 'Pause',
+      speedLabel: 'Speed',
+      matchMetaTitle: 'Match Summary',
+      detectedFormat: 'Detected Format',
+      redAgent: 'Red Force',
+      blueAgent: 'Blue Force',
+      winnerLabel: 'Result',
+      reasonLabel: 'Termination',
+      seedLabel: 'Seed',
+      totalMovesLabel: 'Replayed Steps',
+      telemetryTitle: 'AI Decision Telemetry (Current Step)',
+      noTelemetry: 'No AI telemetry attached to this step (plain notation or initial board).',
+      ruleTriggered: 'Rule Triggered',
+      heuristicScore: 'Heuristic Score',
+      decisionTime: 'Decision Time',
+      nodesVisited: 'Nodes Visited',
+      simulations: 'Simulations',
+      selectedActionRaw: 'Raw Action',
+      heuristicBreakdown: 'Heuristic Components',
+      moveListTitle: 'Replayed Move List',
+      initialBoardLabel: 'Initial Setup (0)',
+      emptyPrompt: 'No record loaded yet. Paste a game log above or load a sample record, then click "Analyze & Replay".',
+      warningsTitle: 'Parser Notes',
+      copyCurrentNotation: 'Copy Normalized Notation',
+      useCurrentMatch: 'Import From Active Board',
+      tagBoard: 'Board',
+      tagPickup: 'Pickup',
+      tagCarrying: 'Carrying',
+      tagSoloSplit: 'Solo Split',
+      tagDeploy: 'Deploy',
+      tagEndCompound: 'End Stack',
+      compoundActiveBadge: 'Compound Turn Active',
     },
     pieces: {
       COMMANDER: 'Commander',

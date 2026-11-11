@@ -2,9 +2,11 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Header } from './components/Header/Header';
 import { Home } from './components/Home/Home';
 import { Board } from './components/Board/Board';
+import { CompoundControlBar } from './components/Board/CompoundControlBar';
 import { PieceDetail } from './components/PieceDetail/PieceDetail';
 import { MoveHistory } from './components/MoveHistory/MoveHistory';
 import { CapturedPieces } from './components/CapturedPieces/CapturedPieces';
+import { GameAnalysisRecord } from './components/GameAnalysisRecord/GameAnalysisRecord';
 import { GameOverModal } from './components/GameOverModal/GameOverModal';
 import { ConfirmModal } from './components/ConfirmModal/ConfirmModal';
 import {
@@ -12,6 +14,7 @@ import {
   Side,
   LegalAction,
   MoveRecord,
+  MatchSnapshot,
   GameStatus,
   GameResult,
   GameMode,
@@ -77,6 +80,39 @@ function extractCompoundState(
   };
 }
 
+function clonePiecesSnapshot(list: PieceState[]): PieceState[] {
+  return list.map((p) => ({
+    ...p,
+    position: { ...p.position },
+    carrying_piece_ids: [...(p.carrying_piece_ids || [])],
+  }));
+}
+
+function cloneCompoundSnapshot(
+  compound: ActiveCompoundState | null
+): ActiveCompoundState | null {
+  if (!compound) return null;
+  return {
+    originPos: { ...compound.originPos },
+    memberIds: [...compound.memberIds],
+    movedPieceIds: [...compound.movedPieceIds],
+    actionCount: compound.actionCount,
+  };
+}
+
+function buildInitialSnapshot(initialPieces: PieceState[]): MatchSnapshot {
+  return {
+    snapshotIndex: 0,
+    pieces: clonePiecesSnapshot(initialPieces),
+    scores: { RED: 0, BLUE: 0 },
+    capturedPieces: [],
+    sideToMove: 'RED',
+    lastMove: null,
+    activeCompound: null,
+    movesCount: 0,
+  };
+}
+
 function buildGameResultFromDTO(
   gs: GameStateDTO,
   nextMoves: MoveRecord[],
@@ -132,17 +168,84 @@ export const App: React.FC = () => {
   const [backendOnline, setBackendOnline] = useState<boolean>(false);
   const [gameSessionId, setGameSessionId] = useState<string | null>(null);
   const [stateVersion, setStateVersion] = useState<number>(1);
+  const [matchSnapshots, setMatchSnapshots] = useState<MatchSnapshot[]>(() => [
+    buildInitialSnapshot(getInitialPieces()),
+  ]);
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
+  const [boardFlipped, setBoardFlipped] = useState<boolean>(false);
+
   const stateVersionRef = useRef<number>(1);
   const piecesRef = useRef<PieceState[]>(pieces);
   piecesRef.current = pieces;
+  const scoresRef = useRef<{ RED: number; BLUE: number }>(scores);
+  scoresRef.current = scores;
+  const movesRef = useRef<MoveRecord[]>(moves);
+  movesRef.current = moves;
+  const capturedPiecesRef = useRef<PieceState[]>(capturedPieces);
+  capturedPiecesRef.current = capturedPieces;
+  const matchSnapshotsRef = useRef<MatchSnapshot[]>(matchSnapshots);
+  matchSnapshotsRef.current = matchSnapshots;
 
   const syncStateVersion = (newVersion: number) => {
     stateVersionRef.current = newVersion;
     setStateVersion(newVersion);
   };
 
+  const appendMatchSnapshot = (snapData: Omit<MatchSnapshot, 'snapshotIndex'>) => {
+    const nextList: MatchSnapshot[] = [
+      ...matchSnapshotsRef.current,
+      {
+        snapshotIndex: matchSnapshotsRef.current.length,
+        pieces: clonePiecesSnapshot(snapData.pieces),
+        scores: { ...snapData.scores },
+        capturedPieces: clonePiecesSnapshot(snapData.capturedPieces),
+        sideToMove: snapData.sideToMove,
+        lastMove: snapData.lastMove,
+        activeCompound: cloneCompoundSnapshot(snapData.activeCompound),
+        movesCount: snapData.movesCount,
+      },
+    ];
+    matchSnapshotsRef.current = nextList;
+    setMatchSnapshots(nextList);
+    setReviewIndex(null);
+  };
+
   const [activeCompound, setActiveCompound] = useState<ActiveCompoundState | null>(null);
   const [carryCargoWithMovement, setCarryCargoWithMovement] = useState<boolean>(true);
+
+  const maxSnapshotIndex = Math.max(0, matchSnapshots.length - 1);
+  const effectiveSnapshotIndex =
+    reviewIndex === null ? maxSnapshotIndex : Math.min(Math.max(0, reviewIndex), maxSnapshotIndex);
+  const isReviewingPast = reviewIndex !== null && reviewIndex < maxSnapshotIndex;
+  const displayedSnapshot =
+    matchSnapshots[effectiveSnapshotIndex] || matchSnapshots[maxSnapshotIndex];
+  const displayedPieces = isReviewingPast ? displayedSnapshot.pieces : pieces;
+  const displayedScores = isReviewingPast ? displayedSnapshot.scores : scores;
+  const displayedCapturedPieces = isReviewingPast
+    ? displayedSnapshot.capturedPieces
+    : capturedPieces;
+  const displayedLastMove = isReviewingPast
+    ? displayedSnapshot.lastMove
+    : moves.length > 0
+    ? moves[moves.length - 1]
+    : null;
+  const displayedActiveCompound = isReviewingPast
+    ? displayedSnapshot.activeCompound
+    : activeCompound;
+  const displayedSideToMove = isReviewingPast ? displayedSnapshot.sideToMove : sideToMove;
+
+  const handleNavigateSnapshot = (targetIdx: number | null) => {
+    const returningLive = targetIdx === null || targetIdx >= maxSnapshotIndex;
+    if (returningLive) {
+      if (isReviewingPast) {
+        setSelectedPieceId(null);
+      }
+      setReviewIndex(null);
+    } else {
+      setReviewIndex(Math.max(0, targetIdx));
+    }
+    setCarryCargoWithMovement(true);
+  };
 
   const t = translations[lang];
 
@@ -167,7 +270,13 @@ export const App: React.FC = () => {
             setGameSessionId(session.game_id);
             syncStateVersion(session.state_version);
             if (session.pieces && session.pieces.length > 0) {
-              setPieces(normalizePieces(session.pieces));
+              const initNorm = normalizePieces(session.pieces);
+              setPieces(initNorm);
+              if (movesRef.current.length === 0) {
+                const initSnaps = [buildInitialSnapshot(initNorm)];
+                matchSnapshotsRef.current = initSnaps;
+                setMatchSnapshots(initSnaps);
+              }
             }
           }
         }
@@ -198,11 +307,42 @@ export const App: React.FC = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }, [matchSeconds]);
 
-  const selectedPiece = pieces.find((p) => p.piece_id === selectedPieceId) || null;
+  const selectedPiece = displayedPieces.find((p) => p.piece_id === selectedPieceId) || null;
+
+  // Keyboard navigation for in-game move review (Đầu / Lùi / Tiến / Cuối)
+  useEffect(() => {
+    if (activeTab !== 'play' || confirmModalType !== null || isGameOverModalOpen) return;
+    if (maxSnapshotIndex <= 0) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handleNavigateSnapshot(Math.max(0, effectiveSnapshotIndex - 1));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        handleNavigateSnapshot(effectiveSnapshotIndex + 1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        handleNavigateSnapshot(0);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        handleNavigateSnapshot(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    activeTab,
+    confirmModalType,
+    isGameOverModalOpen,
+    maxSnapshotIndex,
+    effectiveSnapshotIndex,
+  ]);
 
   // Calculate legal actions for currently selected piece of active side
   const legalActions = useMemo(() => {
-    if (status === 'GAME_OVER' || isAiThinking) return [];
+    if (status === 'GAME_OVER' || isAiThinking || isReviewingPast) return [];
     if (!selectedPiece || selectedPiece.side !== sideToMove) return [];
     // Quy tắc phong Anh hùng trễ: nếu phe chỉ còn 1 Sở chỉ huy + Tư lệnh đang núp bên trong, bắt buộc Tư lệnh thoát ra trước
     const trapCmdId = delayedSolitaryHqCommanderId(pieces, sideToMove);
@@ -214,10 +354,23 @@ export const App: React.FC = () => {
       return [];
     }
     return getMockLegalActions(selectedPiece, pieces, carryCargoWithMovement);
-  }, [status, isAiThinking, selectedPiece, sideToMove, pieces, activeCompound, carryCargoWithMovement]);
+  }, [
+    status,
+    isAiThinking,
+    isReviewingPast,
+    selectedPiece,
+    sideToMove,
+    pieces,
+    activeCompound,
+    carryCargoWithMovement,
+  ]);
 
   const handleSelectPiece = (piece: PieceState) => {
     setCarryCargoWithMovement(true);
+    if (isReviewingPast) {
+      setSelectedPieceId((prev) => (prev === piece.piece_id ? null : piece.piece_id));
+      return;
+    }
     if (status === 'GAME_OVER' || isAiThinking) return;
     // Trong chế độ đấu với AI, người chơi không thể chọn quân của AI (Xanh)
     if (gameMode === 'HUMAN_VS_AI' && piece.side === 'BLUE') {
@@ -262,6 +415,7 @@ export const App: React.FC = () => {
   };
 
   const handleConfirmCompound = async () => {
+    if (isReviewingPast) return;
     const currentSide = sideToMove;
     const nextSideFallback: Side = currentSide === 'RED' ? 'BLUE' : 'RED';
     const compoundSnapshot = activeCompound;
@@ -279,8 +433,11 @@ export const App: React.FC = () => {
         const nextNormalized =
           gs.pieces && gs.pieces.length > 0 ? normalizePieces(gs.pieces) : currentPieces;
         setPieces(nextNormalized);
+        const nextScores = gs.scores
+          ? { RED: gs.scores.RED, BLUE: gs.scores.BLUE }
+          : { ...scoresRef.current };
         if (gs.scores) {
-          setScores({ RED: gs.scores.RED, BLUE: gs.scores.BLUE });
+          setScores(nextScores);
         }
         const notation = gs.last_event?.notation || 'CONFIRM_DEPLOYMENT';
         const confirmAction: LegalAction = {
@@ -296,29 +453,38 @@ export const App: React.FC = () => {
               ? 'Đã xác nhận hoàn tất lượt tác chiến của tổ hợp.'
               : 'Compound deployment turn completed.',
         };
-        const nextMoves: MoveRecord[] = [
-          ...moves,
-          {
-            move_number: moves.length + 1,
-            side: currentSide,
-            action: confirmAction,
-            notation,
-            captured_piece_type: null,
-            timestamp: Date.now(),
-          },
-        ];
+        const confirmRecord: MoveRecord = {
+          move_number: movesRef.current.length + 1,
+          side: currentSide,
+          action: confirmAction,
+          notation,
+          captured_piece_type: null,
+          timestamp: Date.now(),
+        };
+        const nextMoves: MoveRecord[] = [...movesRef.current, confirmRecord];
         setMoves(nextMoves);
+
+        const nextCompound = extractCompoundState(gs, nextNormalized);
+        appendMatchSnapshot({
+          pieces: nextNormalized,
+          scores: nextScores,
+          capturedPieces: capturedPiecesRef.current,
+          sideToMove: gs.side_to_move,
+          lastMove: confirmRecord,
+          activeCompound: nextCompound,
+          movesCount: nextMoves.length,
+        });
 
         if (gs.status === 'GAME_OVER') {
           setStatus('GAME_OVER');
           setGameResult(
-            buildGameResultFromDTO(gs, nextMoves, matchSeconds, gs.scores || scores, currentSide)
+            buildGameResultFromDTO(gs, nextMoves, matchSeconds, nextScores, currentSide)
           );
           setIsGameOverModalOpen(true);
           return;
         }
 
-        setActiveCompound(extractCompoundState(gs, nextNormalized));
+        setActiveCompound(nextCompound);
         setSideToMove(gs.side_to_move);
         return;
       } catch (err) {
@@ -334,7 +500,7 @@ export const App: React.FC = () => {
             setSideToMove(fresh.side_to_move);
             if (fresh.status === 'GAME_OVER') {
               setStatus('GAME_OVER');
-              setGameResult(buildGameResultFromDTO(fresh, moves, matchSeconds, scores, currentSide));
+              setGameResult(buildGameResultFromDTO(fresh, movesRef.current, matchSeconds, scoresRef.current, currentSide));
               setIsGameOverModalOpen(true);
             }
             return;
@@ -368,24 +534,32 @@ export const App: React.FC = () => {
     };
     const { event } = applyMockAction(endTurnAction, currentPieces, true);
     const finalScores = {
-      RED: scores.RED + event.score_delta.RED,
-      BLUE: scores.BLUE + event.score_delta.BLUE,
+      RED: scoresRef.current.RED + event.score_delta.RED,
+      BLUE: scoresRef.current.BLUE + event.score_delta.BLUE,
     };
     if (event.score_delta.RED > 0 || event.score_delta.BLUE > 0) {
       setScores(finalScores);
     }
-    const nextMoves: MoveRecord[] = [
-      ...moves,
-      {
-        move_number: moves.length + 1,
-        side: currentSide,
-        action: endTurnAction,
-        notation: event.notation || 'CONFIRM_DEPLOYMENT',
-        captured_piece_type: null,
-        timestamp: Date.now(),
-      },
-    ];
+    const confirmRecord: MoveRecord = {
+      move_number: movesRef.current.length + 1,
+      side: currentSide,
+      action: endTurnAction,
+      notation: event.notation || 'CONFIRM_DEPLOYMENT',
+      captured_piece_type: null,
+      timestamp: Date.now(),
+    };
+    const nextMoves: MoveRecord[] = [...movesRef.current, confirmRecord];
     setMoves(nextMoves);
+
+    appendMatchSnapshot({
+      pieces: currentPieces,
+      scores: finalScores,
+      capturedPieces: capturedPiecesRef.current,
+      sideToMove: nextSideFallback,
+      lastMove: confirmRecord,
+      activeCompound: null,
+      movesCount: nextMoves.length,
+    });
 
     if (event.details?.is_checkmate || event.details?.is_stalemate) {
       const isStale = Boolean(event.details?.is_stalemate);
@@ -407,7 +581,7 @@ export const App: React.FC = () => {
   };
 
   const triggerAiStep = async () => {
-    if (status === 'GAME_OVER' || isAiThinking) return;
+    if (status === 'GAME_OVER' || isAiThinking || isReviewingPast) return;
     setIsAiThinking(true);
     const actingSide = sideToMove;
 
@@ -432,16 +606,23 @@ export const App: React.FC = () => {
             : prevPieces;
         const prevDeadIds = new Set(prevPieces.filter((p) => !p.is_alive).map((p) => p.piece_id));
         const newlyDead = nextNormalized.filter((p) => !p.is_alive && !prevDeadIds.has(p.piece_id));
+        const nextCaptured =
+          newlyDead.length > 0
+            ? [...capturedPiecesRef.current, ...newlyDead]
+            : capturedPiecesRef.current;
         if (newlyDead.length > 0) {
-          setCapturedPieces((prev) => [...prev, ...newlyDead]);
+          setCapturedPieces(nextCaptured);
         }
         setPieces(nextNormalized);
 
+        const nextScores = aiRes.game_state.scores
+          ? {
+              RED: aiRes.game_state.scores.RED,
+              BLUE: aiRes.game_state.scores.BLUE,
+            }
+          : { ...scoresRef.current };
         if (aiRes.game_state.scores) {
-          setScores({
-            RED: aiRes.game_state.scores.RED,
-            BLUE: aiRes.game_state.scores.BLUE,
-          });
+          setScores(nextScores);
         }
 
         const targetPiece = aiRes.event.target_id
@@ -469,7 +650,7 @@ export const App: React.FC = () => {
             : 'MOVE');
 
         const newRecord: MoveRecord = {
-          move_number: moves.length + 1,
+          move_number: movesRef.current.length + 1,
           side: actingSide,
           action: {
             action_id: `ai_${Date.now()}`,
@@ -478,6 +659,10 @@ export const App: React.FC = () => {
             from_pos: fromPos,
             to_pos: toPos,
             target_piece_id: aiRes.event.target_id || null,
+            carry_cargo:
+              typeof aiRes.event.details?.carry_cargo === 'boolean'
+                ? aiRes.event.details.carry_cargo
+                : resolvedActionType !== 'CAPTURE_STAND',
             notation: aiRes.event.notation,
             description: 'Nước đi của Random Agent',
           },
@@ -488,8 +673,23 @@ export const App: React.FC = () => {
               : null,
           timestamp: Date.now(),
         };
-        const nextMoves = [...moves, newRecord];
+        const nextMoves = [...movesRef.current, newRecord];
         setMoves(nextMoves);
+
+        const nextCompound =
+          aiRes.game_state.status === 'GAME_OVER'
+            ? null
+            : extractCompoundState(aiRes.game_state, nextNormalized);
+
+        appendMatchSnapshot({
+          pieces: nextNormalized,
+          scores: nextScores,
+          capturedPieces: nextCaptured,
+          sideToMove: aiRes.game_state.side_to_move,
+          lastMove: newRecord,
+          activeCompound: nextCompound,
+          movesCount: nextMoves.length,
+        });
 
         if (aiRes.game_state.status === 'GAME_OVER') {
           setStatus('GAME_OVER');
@@ -498,7 +698,7 @@ export const App: React.FC = () => {
               aiRes.game_state,
               nextMoves,
               matchSeconds,
-              aiRes.game_state.scores || scores,
+              nextScores,
               actingSide
             )
           );
@@ -509,7 +709,7 @@ export const App: React.FC = () => {
         }
 
         setSelectedPieceId(null);
-        setActiveCompound(extractCompoundState(aiRes.game_state, nextNormalized));
+        setActiveCompound(nextCompound);
         setSideToMove(aiRes.game_state.side_to_move);
       } else {
         // Fallback ngoại tuyến (Mock engine) - Tác tử AI thông minh bao gồm cả tổ hợp cõng quân & END_TURN
@@ -525,16 +725,16 @@ export const App: React.FC = () => {
           if (outcome.isCheckmate || outcome.isStalemate) {
             const opponent: Side = actingSide === 'RED' ? 'BLUE' : 'RED';
             const finalScores = outcome.isCheckmate
-              ? { ...scores, [opponent]: scores[opponent] + 50 }
-              : { ...scores };
+              ? { ...scoresRef.current, [opponent]: scoresRef.current[opponent] + 50 }
+              : { ...scoresRef.current };
             if (outcome.isCheckmate) setScores(finalScores);
             setStatus('GAME_OVER');
             setGameResult({
               winner: outcome.isCheckmate ? opponent : 'DRAW',
               reason: outcome.isCheckmate ? 'CHECKMATE' : 'STALEMATE',
               final_scores: finalScores,
-              total_turns: Math.max(1, Math.ceil(moves.length / 2)),
-              total_moves: moves.length,
+              total_turns: Math.max(1, Math.ceil(movesRef.current.length / 2)),
+              total_moves: movesRef.current.length,
               duration_seconds: matchSeconds,
               captured_commander_side: null,
             });
@@ -551,17 +751,17 @@ export const App: React.FC = () => {
 
   // Tự động kích hoạt nước đi của AI khi đến lượt phe Xanh trong chế độ HUMAN_VS_AI
   useEffect(() => {
-    if (status !== 'IN_PROGRESS' || activeTab !== 'play') return;
+    if (status !== 'IN_PROGRESS' || activeTab !== 'play' || isReviewingPast) return;
     if (gameMode === 'HUMAN_VS_AI' && sideToMove === 'BLUE' && !isAiThinking) {
       const timer = setTimeout(() => {
         triggerAiStep();
       }, 600);
       return () => clearTimeout(timer);
     }
-  }, [sideToMove, gameMode, status, activeTab, isAiThinking, activeCompound]);
+  }, [sideToMove, gameMode, status, activeTab, isAiThinking, activeCompound, isReviewingPast]);
 
   const handleExecuteAction = async (action: LegalAction, isAiAction: boolean = false) => {
-    if (status === 'GAME_OVER' || (!isAiAction && isAiThinking)) return;
+    if (status === 'GAME_OVER' || isReviewingPast || (!isAiAction && isAiThinking)) return;
 
     const currentPieces = piecesRef.current;
     const currentSide = sideToMove;
@@ -654,20 +854,27 @@ export const App: React.FC = () => {
           gs.pieces && gs.pieces.length > 0 ? normalizePieces(gs.pieces) : previewOutcome.nextPieces;
         const prevDeadIds = new Set(currentPieces.filter((p) => !p.is_alive).map((p) => p.piece_id));
         const newlyDead = nextNormalized.filter((p) => !p.is_alive && !prevDeadIds.has(p.piece_id));
+        const nextCaptured =
+          newlyDead.length > 0
+            ? [...capturedPiecesRef.current, ...newlyDead]
+            : capturedPiecesRef.current;
         if (newlyDead.length > 0) {
-          setCapturedPieces((prev) => [...prev, ...newlyDead]);
+          setCapturedPieces(nextCaptured);
         }
         setPieces(nextNormalized);
 
+        const nextScores = gs.scores
+          ? { RED: gs.scores.RED, BLUE: gs.scores.BLUE }
+          : { ...scoresRef.current };
         if (gs.scores) {
-          setScores({ RED: gs.scores.RED, BLUE: gs.scores.BLUE });
+          setScores(nextScores);
         }
 
         const capPiece = action.target_piece_id
           ? currentPieces.find((p) => p.piece_id === action.target_piece_id) || null
           : null;
         const newRecord: MoveRecord = {
-          move_number: moves.length + 1,
+          move_number: movesRef.current.length + 1,
           side: currentSide,
           action: actionWithCarry,
           notation: res.event.notation || action.notation,
@@ -677,22 +884,35 @@ export const App: React.FC = () => {
               : null,
           timestamp: Date.now(),
         };
-        const nextMoves = [...moves, newRecord];
+        const nextMoves = [...movesRef.current, newRecord];
         setMoves(nextMoves);
         setCarryCargoWithMovement(true);
         setSelectedPieceId(null);
 
+        const nextCompound =
+          gs.status === 'GAME_OVER' ? null : extractCompoundState(gs, nextNormalized);
+
+        appendMatchSnapshot({
+          pieces: nextNormalized,
+          scores: nextScores,
+          capturedPieces: nextCaptured,
+          sideToMove: gs.side_to_move,
+          lastMove: newRecord,
+          activeCompound: nextCompound,
+          movesCount: nextMoves.length,
+        });
+
         if (gs.status === 'GAME_OVER') {
           setStatus('GAME_OVER');
           setGameResult(
-            buildGameResultFromDTO(gs, nextMoves, matchSeconds, gs.scores || scores, currentSide)
+            buildGameResultFromDTO(gs, nextMoves, matchSeconds, nextScores, currentSide)
           );
           setIsGameOverModalOpen(true);
           setActiveCompound(null);
           return;
         }
 
-        setActiveCompound(extractCompoundState(gs, nextNormalized));
+        setActiveCompound(nextCompound);
         setSideToMove(gs.side_to_move);
         return;
       } catch (err) {
@@ -708,7 +928,15 @@ export const App: React.FC = () => {
             setSideToMove(fresh.side_to_move);
             if (fresh.status === 'GAME_OVER') {
               setStatus('GAME_OVER');
-              setGameResult(buildGameResultFromDTO(fresh, moves, matchSeconds, scores, currentSide));
+              setGameResult(
+                buildGameResultFromDTO(
+                  fresh,
+                  movesRef.current,
+                  matchSeconds,
+                  { RED: fresh.scores.RED, BLUE: fresh.scores.BLUE },
+                  currentSide
+                )
+              );
               setIsGameOverModalOpen(true);
             }
             setCarryCargoWithMovement(true);
@@ -734,32 +962,66 @@ export const App: React.FC = () => {
     const newlyDead = nextPieces.filter(
       (np) => !np.is_alive && currentPieces.find((p) => p.piece_id === np.piece_id && p.is_alive)
     );
-    if (newlyDead.length > 0) {
-      setCapturedPieces((prev) => [...prev, ...newlyDead]);
-    } else if (capturedPiece) {
-      setCapturedPieces((prev) => [...prev, capturedPiece]);
+    const nextCaptured =
+      newlyDead.length > 0
+        ? [...capturedPiecesRef.current, ...newlyDead]
+        : capturedPiece
+        ? [...capturedPiecesRef.current, capturedPiece]
+        : capturedPiecesRef.current;
+    if (newlyDead.length > 0 || capturedPiece) {
+      setCapturedPieces(nextCaptured);
     }
 
-    const finalRedScore = scores.RED + event.score_delta.RED;
-    const finalBlueScore = scores.BLUE + event.score_delta.BLUE;
+    const finalRedScore = scoresRef.current.RED + event.score_delta.RED;
+    const finalBlueScore = scoresRef.current.BLUE + event.score_delta.BLUE;
+    const finalScores = { RED: finalRedScore, BLUE: finalBlueScore };
     if (event.score_delta.RED > 0 || event.score_delta.BLUE > 0) {
-      setScores({
-        RED: finalRedScore,
-        BLUE: finalBlueScore,
-      });
+      setScores(finalScores);
     }
 
     const newRecord: MoveRecord = {
-      move_number: moves.length + 1,
+      move_number: movesRef.current.length + 1,
       side: currentSide,
       action: actionWithCarry,
       notation: event.notation || action.notation,
       captured_piece_type: capturedPiece ? capturedPiece.type : null,
       timestamp: Date.now(),
     };
-    const nextMoves = [...moves, newRecord];
+    const nextMoves = [...movesRef.current, newRecord];
     setMoves(nextMoves);
     setCarryCargoWithMovement(true);
+
+    const isGameEnding =
+      Boolean(capturedPiece && capturedPiece.type === 'COMMANDER') ||
+      Boolean(event.details?.is_checkmate || event.details?.is_stalemate);
+
+    const nextCompoundState: ActiveCompoundState | null =
+      !isGameEnding && predictedStayInStack
+        ? {
+            originPos,
+            memberIds,
+            movedPieceIds: newMoved,
+            actionCount: (activeCompound?.actionCount || 0) + 1,
+          }
+        : null;
+
+    const nextSide: Side = isGameEnding
+      ? currentSide
+      : predictedStayInStack
+      ? currentSide
+      : currentSide === 'RED'
+      ? 'BLUE'
+      : 'RED';
+
+    appendMatchSnapshot({
+      pieces: nextPieces,
+      scores: finalScores,
+      capturedPieces: nextCaptured,
+      sideToMove: nextSide,
+      lastMove: newRecord,
+      activeCompound: nextCompoundState,
+      movesCount: nextMoves.length,
+    });
 
     // KẾT THÚC TRẬN ĐẤU: Bắt được Tư lệnh đối phương (phòng thủ)
     if (capturedPiece && capturedPiece.type === 'COMMANDER') {
@@ -767,7 +1029,7 @@ export const App: React.FC = () => {
       setGameResult({
         winner: currentSide,
         reason: 'COMMANDER_CAPTURED',
-        final_scores: { RED: finalRedScore, BLUE: finalBlueScore },
+        final_scores: finalScores,
         total_turns: Math.ceil(nextMoves.length / 2),
         total_moves: nextMoves.length,
         duration_seconds: matchSeconds,
@@ -786,7 +1048,7 @@ export const App: React.FC = () => {
       setGameResult({
         winner: isStale ? 'DRAW' : currentSide,
         reason: isStale ? 'STALEMATE' : 'CHECKMATE',
-        final_scores: { RED: finalRedScore, BLUE: finalBlueScore },
+        final_scores: finalScores,
         total_turns: Math.ceil(nextMoves.length / 2),
         total_moves: nextMoves.length,
         duration_seconds: matchSeconds,
@@ -798,18 +1060,13 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (predictedStayInStack) {
-      setActiveCompound({
-        originPos,
-        memberIds,
-        movedPieceIds: newMoved,
-        actionCount: (activeCompound?.actionCount || 0) + 1,
-      });
+    if (predictedStayInStack && nextCompoundState) {
+      setActiveCompound(nextCompoundState);
       setSelectedPieceId(null);
     } else {
       setActiveCompound(null);
       setSelectedPieceId(null);
-      setSideToMove(currentSide === 'RED' ? 'BLUE' : 'RED');
+      setSideToMove(nextSide);
     }
   };
 
@@ -824,7 +1081,12 @@ export const App: React.FC = () => {
   const handleResetBoard = async (newMode?: GameMode) => {
     const modeToUse = newMode || gameMode;
     if (newMode) setGameMode(newMode);
-    setPieces(getInitialPieces());
+    const freshInitial = getInitialPieces();
+    const initSnaps = [buildInitialSnapshot(freshInitial)];
+    matchSnapshotsRef.current = initSnaps;
+    setMatchSnapshots(initSnaps);
+    setReviewIndex(null);
+    setPieces(freshInitial);
     setSelectedPieceId(null);
     setActiveCompound(null);
     setCarryCargoWithMovement(true);
@@ -850,7 +1112,12 @@ export const App: React.FC = () => {
         setGameSessionId(session.game_id);
         syncStateVersion(session.state_version);
         if (session.pieces && session.pieces.length > 0) {
-          setPieces(normalizePieces(session.pieces));
+          const initNorm = normalizePieces(session.pieces);
+          const backendSnaps = [buildInitialSnapshot(initNorm)];
+          matchSnapshotsRef.current = backendSnaps;
+          setMatchSnapshots(backendSnaps);
+          setReviewIndex(null);
+          setPieces(initNorm);
         }
       } catch (err) {
         console.warn('Backend new game creation failed:', err);
@@ -859,7 +1126,7 @@ export const App: React.FC = () => {
   };
 
   const handleRequestResign = () => {
-    if (status === 'GAME_OVER') return;
+    if (status === 'GAME_OVER' || isReviewingPast) return;
     setConfirmModalType('RESIGN');
   };
 
@@ -882,6 +1149,7 @@ export const App: React.FC = () => {
       duration_seconds: matchSeconds,
       captured_commander_side: null,
     };
+    setReviewIndex(null);
     setStatus('GAME_OVER');
     setGameResult(result);
     setConfirmModalType(null);
@@ -889,7 +1157,7 @@ export const App: React.FC = () => {
   };
 
   const handleRequestDraw = () => {
-    if (status === 'GAME_OVER') return;
+    if (status === 'GAME_OVER' || isReviewingPast) return;
     setConfirmModalType('DRAW');
   };
 
@@ -911,6 +1179,7 @@ export const App: React.FC = () => {
       duration_seconds: matchSeconds,
       captured_commander_side: null,
     };
+    setReviewIndex(null);
     setStatus('GAME_OVER');
     setGameResult(result);
     setConfirmModalType(null);
@@ -1009,7 +1278,13 @@ export const App: React.FC = () => {
               </div>
 
               {/* Action Log / Move History Panel */}
-              <MoveHistory moves={moves} lang={lang} />
+              <MoveHistory
+                moves={moves}
+                lang={lang}
+                activeSnapshotIndex={effectiveSnapshotIndex}
+                totalSnapshots={matchSnapshots.length}
+                onNavigateSnapshot={handleNavigateSnapshot}
+              />
 
               {/* Rules Guide Quick Link */}
               <button
@@ -1024,18 +1299,95 @@ export const App: React.FC = () => {
 
             {/* Main Tactical Board Area - Full Vertical Space without top bar */}
             <section className={styles.boardSection}>
+              {isReviewingPast && (
+                <div className={styles.reviewBanner}>
+                  <span>⏪ {t.game.reviewingHistoryBanner}</span>
+                  <button
+                    type="button"
+                    className={styles.reopenBtn}
+                    onClick={() => handleNavigateSnapshot(null)}
+                  >
+                    {t.game.returnToLiveBtn} ⏭
+                  </button>
+                </div>
+              )}
+
               <Board
-                pieces={pieces}
+                pieces={displayedPieces}
                 selectedPieceId={selectedPieceId}
                 onSelectPiece={handleSelectPiece}
                 legalActions={legalActions}
                 onExecuteAction={handleExecuteAction}
-                onConfirmCompound={handleConfirmCompound}
-                lastMove={moves.length > 0 ? moves[moves.length - 1] : null}
-                activeCompound={activeCompound}
+                lastMove={displayedLastMove}
+                activeCompound={displayedActiveCompound}
+                flipped={boardFlipped}
+                readOnly={isReviewingPast}
+                lang={lang}
+              />
+
+              <CompoundControlBar
+                pieces={displayedPieces}
+                selectedPieceId={selectedPieceId}
+                activeCompound={displayedActiveCompound}
                 carryCargo={carryCargoWithMovement}
                 onToggleCarryCargo={setCarryCargoWithMovement}
+                onSelectPiece={handleSelectPiece}
+                onConfirmCompound={handleConfirmCompound}
+                lang={lang}
+                readOnly={isReviewingPast || status === 'GAME_OVER' || isAiThinking}
               />
+
+              <div className={`tactical-panel ${styles.reviewControlBar}`}>
+                <button
+                  type="button"
+                  className={styles.reviewNavBtn}
+                  disabled={effectiveSnapshotIndex <= 0}
+                  onClick={() => handleNavigateSnapshot(0)}
+                  title="Home"
+                >
+                  ⏮ {t.game.navFirst}
+                </button>
+                <button
+                  type="button"
+                  className={styles.reviewNavBtn}
+                  disabled={effectiveSnapshotIndex <= 0}
+                  onClick={() => handleNavigateSnapshot(effectiveSnapshotIndex - 1)}
+                  title="ArrowLeft"
+                >
+                  ◀ {t.game.navPrev}
+                </button>
+                <span className={styles.reviewStepBadge}>
+                  {t.game.stepLabel} {effectiveSnapshotIndex} / {maxSnapshotIndex}
+                </span>
+                <button
+                  type="button"
+                  className={styles.reviewNavBtn}
+                  disabled={effectiveSnapshotIndex >= maxSnapshotIndex}
+                  onClick={() => handleNavigateSnapshot(effectiveSnapshotIndex + 1)}
+                  title="ArrowRight"
+                >
+                  {t.game.navNext} ▶
+                </button>
+                <button
+                  type="button"
+                  className={styles.reviewNavBtn}
+                  disabled={effectiveSnapshotIndex >= maxSnapshotIndex}
+                  onClick={() => handleNavigateSnapshot(null)}
+                  title="End"
+                >
+                  {t.game.navLast} ⏭
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.reviewNavBtn} ${
+                    boardFlipped ? styles.reviewFlipBtnActive : ''
+                  }`}
+                  onClick={() => setBoardFlipped((prev) => !prev)}
+                  title={t.game.flipBoard}
+                >
+                  🔄 {t.game.flipBoard}
+                </button>
+              </div>
             </section>
 
             {/* Right Sidebar Control & Info Panel */}
@@ -1093,19 +1445,19 @@ export const App: React.FC = () => {
                 <div className={styles.turnIndicator}>
                   <div
                     className={`${styles.turnDot} ${
-                      sideToMove === 'BLUE' ? styles.turnDotBlue : ''
+                      displayedSideToMove === 'BLUE' ? styles.turnDotBlue : ''
                     }`}
                   />
                   <span className={styles.turnText}>
                     {t.game.turn}:{' '}
                     <strong
                       className={
-                        sideToMove === 'RED'
+                        displayedSideToMove === 'RED'
                           ? styles.turnSideRed
                           : styles.turnSideBlue
                       }
                     >
-                      {sideToMove === 'RED'
+                      {displayedSideToMove === 'RED'
                         ? t.game.redSide
                         : gameMode === 'HUMAN_VS_AI'
                         ? t.game.aiBotName
@@ -1127,14 +1479,14 @@ export const App: React.FC = () => {
                   <div className={styles.scoreTeam}>
                     <span className={styles.teamLabelRed}>{t.game.redSide}</span>
                     <span className={styles.scoreValue}>
-                      {scores.RED}
+                      {displayedScores.RED}
                     </span>
                   </div>
                   <div className={styles.scoreDivider}>vs</div>
                   <div className={styles.scoreTeam}>
                     <span className={styles.teamLabelBlue}>{t.game.blueSide}</span>
                     <span className={styles.scoreValue}>
-                      {scores.BLUE}
+                      {displayedScores.BLUE}
                     </span>
                   </div>
                 </div>
@@ -1154,7 +1506,7 @@ export const App: React.FC = () => {
                     type="button"
                     className="btn btn-secondary"
                     onClick={triggerAiStep}
-                    disabled={status === 'GAME_OVER' || isAiThinking}
+                    disabled={status === 'GAME_OVER' || isAiThinking || isReviewingPast}
                     title={t.game.aiMoveBtn}
                   >
                     {t.game.aiMoveBtn}
@@ -1167,7 +1519,7 @@ export const App: React.FC = () => {
                       setSelectedPieceId(null);
                       setSideToMove(sideToMove === 'RED' ? 'BLUE' : 'RED');
                     }}
-                    disabled={status === 'GAME_OVER' || isAiThinking}
+                    disabled={status === 'GAME_OVER' || isAiThinking || isReviewingPast}
                     title="Chuyển lượt thử nghiệm"
                   >
                     {t.game.swapTurn}
@@ -1180,7 +1532,7 @@ export const App: React.FC = () => {
                     type="button"
                     className="btn btn-secondary"
                     onClick={handleRequestResign}
-                    disabled={status === 'GAME_OVER'}
+                    disabled={status === 'GAME_OVER' || isReviewingPast}
                     title={t.game.resign}
                   >
                     🏳️ {t.game.resign}
@@ -1189,7 +1541,7 @@ export const App: React.FC = () => {
                     type="button"
                     className="btn btn-secondary"
                     onClick={handleRequestDraw}
-                    disabled={status === 'GAME_OVER'}
+                    disabled={status === 'GAME_OVER' || isReviewingPast}
                     title={t.game.drawOffer}
                   >
                     🤝 {t.game.drawOffer}
@@ -1200,13 +1552,15 @@ export const App: React.FC = () => {
               {/* Tactical Piece Detail Panel */}
               <PieceDetail
                 piece={selectedPiece}
-                allPieces={pieces}
+                allPieces={displayedPieces}
                 onSelectPiece={handleSelectPiece}
                 lang={lang}
+                movedPieceIds={displayedActiveCompound?.movedPieceIds}
+                readOnly={isReviewingPast || status === 'GAME_OVER' || isAiThinking}
               />
 
               {/* Captured Pieces Tracker */}
-              <CapturedPieces capturedPieces={capturedPieces} lang={lang} />
+              <CapturedPieces capturedPieces={displayedCapturedPieces} lang={lang} />
             </aside>
           </div>
         )}
@@ -1274,8 +1628,8 @@ export const App: React.FC = () => {
                   </li>
                   <li>
                     {lang === 'vi'
-                      ? 'Che chở & Chắn đối mặt: Tư lệnh đang trú trong Sở chỉ huy thường không bị chiếu; Tư lệnh ngồi trên Xe tăng, Máy bay, Tàu chiến hoặc Sở chỉ huy đều chắn đường đối mặt giữa 2 Tư lệnh.'
-                      : 'Shielding & Facing: Commander sheltered in regular HQ cannot be checked; Commander carried inside Tank, Aircraft, Navy, or HQ blocks opposing Commander facing.'}
+                      ? 'Che chở & Cấm đối mặt khi cõng (DEC-021): Chỉ Sở chỉ huy thường che chở Tư lệnh đã trú bên trong khỏi chiếu & đối mặt. Tư lệnh KHÔNG được lên phương tiện nằm trên đường nhìn Tư lệnh địch, và phương tiện cơ động (Xe tăng, Máy bay, Tàu chiến) đang cõng Tư lệnh KHÔNG được dừng lại trên đường nhìn thẳng thông thoáng đối mặt Tư lệnh địch.'
+                      : 'Shelter & Transport Facing Ban (DEC-021): Only regular HQ shelters an already-sheltered Commander from check & facing. Commander cannot board a carrier standing on enemy Commander line of sight, and mobile carriers carrying Commander (Tank, Aircraft, Navy) cannot stop on enemy Commander unobstructed facing line.'}
                   </li>
                   <li>
                     {lang === 'vi'
@@ -1402,7 +1756,7 @@ export const App: React.FC = () => {
                     <td>{lang === 'vi' ? 'Ngang/dọc không hạn chế (bị cản)' : 'Orthogonal unlimited (blocked)'}</td>
                     <td>{lang === 'vi' ? 'Ngang/dọc 1 đoạn (thế chỗ @ hoặc _@_)' : 'Orthogonal 1 step (@ or _@_)'}</td>
                     <td>{lang === 'vi' ? 'Mọi quân địch (kể cả Máy bay) và tàu ven bờ (cấm tự sát).' : 'All enemy pieces (incl. Aircraft) & coastal ships (no self-check).'}</td>
-                    <td>{lang === 'vi' ? 'Tự qua sông sâu được. Trên Tăng/Máy bay/Tàu/SCH đều chắn đối mặt.' : 'Crosses deep river. Carried Commander blocks facing.'}</td>
+                    <td>{lang === 'vi' ? 'Tự qua sông sâu được. Cấm lên phương tiện hay dừng xe/tàu/máy bay cõng trên đường nhìn Tư lệnh địch.' : 'Crosses deep river. Cannot board or halt inside mobile carrier on enemy Commander LOS.'}</td>
                   </tr>
                   <tr>
                     <td className={styles.rulesPieceName}>
@@ -1510,8 +1864,16 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 4: UNDER DEVELOPMENT MODULES (aiVsAi, replays, stats) */}
-        {activeTab !== 'home' && activeTab !== 'play' && activeTab !== 'rules' && (
+        {/* TAB 4: GAME ANALYSIS RECORD */}
+        {activeTab === 'replays' && (
+          <GameAnalysisRecord lang={lang} activeMatchMoves={moves} />
+        )}
+
+        {/* TAB 5: UNDER DEVELOPMENT MODULES (aiVsAi, stats) */}
+        {activeTab !== 'home' &&
+          activeTab !== 'play' &&
+          activeTab !== 'rules' &&
+          activeTab !== 'replays' && (
           <div className={styles.devPanel}>
             <div className={styles.devBadge}>⚙</div>
             <h2 className={styles.devTitle}>

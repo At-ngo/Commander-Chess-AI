@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { GameResult, MoveRecord, Side } from '../../types';
 import { Language, translations } from '../../i18n';
 import { getPieceImageUrl } from '../../utils/assets';
+import { formatFullMatchNotation } from '../../utils/recordAnalyzer';
 import styles from './GameOverModal.module.css';
 
 interface GameOverModalProps {
@@ -55,48 +56,14 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
     reasonDesc = t.game.reasonDraw;
   }
 
-  // Format full match export with COTULENH-NOTATION header
+  // Format full match export with COTULENH-NOTATION header (preserving compound turns & {carry=0})
   const handleCopyFullMatch = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const resStr = isRedWin ? 'RED_WIN' : isBlueWin ? 'BLUE_WIN' : 'DRAW';
-
-    // Group moves into pairs
-    const pairedMoves: { turn: number; red?: MoveRecord; blue?: MoveRecord }[] = [];
-    for (let i = 0; i < moves.length; i++) {
-      const move = moves[i];
-      const turnIndex = Math.floor(i / 2);
-      if (!pairedMoves[turnIndex]) {
-        pairedMoves[turnIndex] = { turn: turnIndex + 1 };
-      }
-      if (move.side === 'RED') {
-        pairedMoves[turnIndex].red = move;
-      } else {
-        pairedMoves[turnIndex].blue = move;
-      }
-    }
-
-    const moveLines = pairedMoves.map((p) => {
-      let turnStr = `${p.turn}. Đỏ:  ${p.red ? p.red.notation : '...'}`;
-      if (p.blue) {
-        turnStr += `\n   Xanh: ${p.blue.notation}`;
-      }
-      return turnStr;
+    const fullExport = formatFullMatchNotation(moves, {
+      winner: result.winner,
+      reason: result.reason,
+      finalScores: result.final_scores,
+      durationFormatted: formatDuration(result.duration_seconds),
     });
-
-    const fullExport = [
-      `[Format "COTULENH-NOTATION"]`,
-      `[Version "1.1"]`,
-      `[Date "${today}"]`,
-      `[Mode "TOTAL_FORCE"]`,
-      `[Red "Commander Red"]`,
-      `[Blue "Commander Blue"]`,
-      `[Result "${resStr}"]`,
-      `[Termination "${result.reason}"]`,
-      `[FinalScore "Red: ${result.final_scores.RED} - Blue: ${result.final_scores.BLUE}"]`,
-      `[Duration "${formatDuration(result.duration_seconds)}"]`,
-      ``,
-      ...moveLines,
-    ].join('\n');
 
     navigator.clipboard.writeText(fullExport);
     setCopied(true);

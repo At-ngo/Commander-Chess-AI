@@ -132,23 +132,38 @@ export function canPieceCrossRiverToEmpty(
 /**
  * Kiểm tra khả năng chở quân / lên phương tiện (RULE-TRANSPORT-001 & BUG-HQ-001)
  */
-export function canBoardCarrier(passenger: PieceState, carrier: PieceState): boolean {
+export function canBoardCarrier(
+  passenger: PieceState,
+  carrier: PieceState,
+  allPieces?: PieceState[]
+): boolean {
   if (carrier.side !== passenger.side || !carrier.is_alive || !passenger.is_alive) return false;
   if (carrier.carried_by_id != null) return false;
   if (passenger.piece_id === carrier.piece_id) return false;
 
-  const currentPassengers = carrier.carrying_piece_ids ? carrier.carrying_piece_ids.length : 0;
+  const usedSlots = allPieces
+    ? getAllCarriedPieceIds(carrier.piece_id, allPieces).length
+    : carrier.carrying_piece_ids
+    ? carrier.carrying_piece_ids.length
+    : 0;
+  const addedSlots =
+    1 +
+    (allPieces
+      ? getAllCarriedPieceIds(passenger.piece_id, allPieces).length
+      : passenger.carrying_piece_ids
+      ? passenger.carrying_piece_ids.length
+      : 0);
 
   if (carrier.type === 'TANK') {
     return (
-      currentPassengers < 2 &&
+      usedSlots + addedSlots <= 2 &&
       (passenger.type === 'INFANTRY' || passenger.type === 'MILITIA' || passenger.type === 'COMMANDER')
     );
   }
 
   if (carrier.type === 'AIRCRAFT') {
     return (
-      currentPassengers < 2 &&
+      usedSlots + addedSlots <= 2 &&
       (passenger.type === 'INFANTRY' ||
         passenger.type === 'MILITIA' ||
         passenger.type === 'COMMANDER' ||
@@ -158,7 +173,7 @@ export function canBoardCarrier(passenger: PieceState, carrier: PieceState): boo
 
   if (carrier.type === 'NAVY') {
     return (
-      currentPassengers < 2 &&
+      usedSlots + addedSlots <= 2 &&
       (passenger.type === 'INFANTRY' ||
         passenger.type === 'MILITIA' ||
         passenger.type === 'COMMANDER' ||
@@ -171,14 +186,14 @@ export function canBoardCarrier(passenger: PieceState, carrier: PieceState): boo
     const isAtRiverBank = carrier.position.y === 5 || carrier.position.y === 6;
     return (
       isAtRiverBank &&
-      currentPassengers < 1 &&
+      usedSlots + addedSlots <= 1 &&
       (passenger.type === 'ARTILLERY' || passenger.type === 'ANTI_AIR' || passenger.type === 'MISSILE')
     );
   }
 
   if (carrier.type === 'HEADQUARTERS') {
     if (carrier.is_hero) return false; // Sở chỉ huy Anh hùng không còn cho ẩn nấp
-    return currentPassengers < 1 && passenger.type === 'COMMANDER';
+    return usedSlots + addedSlots <= 1 && passenger.type === 'COMMANDER';
   }
 
   return false;
@@ -355,9 +370,33 @@ export function isAircraftFlightAffectedByAa(
   return false;
 }
 
+function getCommanderFacingTarget(
+  cmd: PieceState,
+  allPieces: PieceState[]
+): { position: Position; rootId: string } | null {
+  if (!cmd.is_alive) return null;
+  const byId = new Map<string, PieceState>();
+  for (const p of allPieces) {
+    if (p.is_alive) byId.set(p.piece_id, p);
+  }
+  let cursor = cmd;
+  const seen = new Set<string>([cmd.piece_id]);
+  while (cursor.carried_by_id != null) {
+    const parent = byId.get(cursor.carried_by_id);
+    if (!parent || seen.has(parent.piece_id)) break;
+    if (parent.type === 'HEADQUARTERS' && !parent.is_hero) {
+      return null; // Chỉ Sở chỉ huy thường che chắn đối mặt khi Tư lệnh đã ở trong (Q9)
+    }
+    seen.add(parent.piece_id);
+    cursor = parent;
+  }
+  return { position: cursor.position, rootId: cursor.piece_id };
+}
+
 /**
- * Kiểm tra xem hai Tư lệnh có đang đối mặt nhau trên cùng hàng/cột không (BUG-CMD-001)
- * Tư lệnh nằm trên phương tiện (Xe tăng, Máy bay, Tàu chiến) hoặc trong Sở chỉ huy đều chặn đối mặt!
+ * Kiểm tra xem hai Tư lệnh có đang đối mặt nhau trên cùng hàng/cột không (BUG-CMD-001 & DEC-021)
+ * - Chỉ Sở chỉ huy thường (!is_hero) mới che chắn đối mặt khi Tư lệnh ở bên trong (Q9).
+ * - Tư lệnh ngồi trên phương tiện cơ động (TANK, AIRCRAFT, NAVY) tính đối mặt theo vị trí phương tiện gốc!
  */
 export function isCommandersFacing(allPieces: PieceState[]): boolean {
   const redCmd = allPieces.find((p) => p.is_alive && p.side === 'RED' && p.type === 'COMMANDER');
@@ -365,20 +404,17 @@ export function isCommandersFacing(allPieces: PieceState[]): boolean {
 
   if (!redCmd || !blueCmd) return false;
 
-  if (redCmd.carried_by_id != null && allPieces.some((p) => p.is_alive && p.piece_id === redCmd.carried_by_id)) {
-    return false;
-  }
-  if (blueCmd.carried_by_id != null && allPieces.some((p) => p.is_alive && p.piece_id === blueCmd.carried_by_id)) {
-    return false;
-  }
+  const redInfo = getCommanderFacingTarget(redCmd, allPieces);
+  const blueInfo = getCommanderFacingTarget(blueCmd, allPieces);
+  if (!redInfo || !blueInfo) return false;
 
   const visible = allPieces.filter((p) => p.is_alive && !p.carried_by_id);
 
   // 1. Cùng cột dọc (x giống nhau)
-  if (redCmd.position.x === blueCmd.position.x) {
-    const x = redCmd.position.x;
-    const minY = Math.min(redCmd.position.y, blueCmd.position.y);
-    const maxY = Math.max(redCmd.position.y, blueCmd.position.y);
+  if (redInfo.position.x === blueInfo.position.x) {
+    const x = redInfo.position.x;
+    const minY = Math.min(redInfo.position.y, blueInfo.position.y);
+    const maxY = Math.max(redInfo.position.y, blueInfo.position.y);
 
     const hasObstacle = visible.some(
       (p) => p.position.x === x && p.position.y > minY && p.position.y < maxY
@@ -387,10 +423,10 @@ export function isCommandersFacing(allPieces: PieceState[]): boolean {
   }
 
   // 2. Cùng hàng ngang (y giống nhau)
-  if (redCmd.position.y === blueCmd.position.y) {
-    const y = redCmd.position.y;
-    const minX = Math.min(redCmd.position.x, blueCmd.position.x);
-    const maxX = Math.max(redCmd.position.x, blueCmd.position.x);
+  if (redInfo.position.y === blueInfo.position.y) {
+    const y = redInfo.position.y;
+    const minX = Math.min(redInfo.position.x, blueInfo.position.x);
+    const maxX = Math.max(redInfo.position.x, blueInfo.position.x);
 
     const hasObstacle = visible.some(
       (p) => p.position.y === y && p.position.x > minX && p.position.x < maxX
@@ -402,40 +438,48 @@ export function isCommandersFacing(allPieces: PieceState[]): boolean {
 }
 
 /**
- * Kiểm tra xem Sở chỉ huy có đang nằm trên đường nhìn thẳng của Tư lệnh đối phương không (Q9)
+ * Kiểm tra phương tiện / Sở chỉ huy có đang nằm trên đường nhìn thẳng của Tư lệnh đối phương không (Q9 & DEC-021)
  */
 export function isHqFacingEnemyCommander(
   hq: PieceState,
   enemyCmd: PieceState,
-  allPieces: PieceState[]
+  allPieces: PieceState[],
+  ignorePieceIds: string[] = []
 ): boolean {
-  if (!enemyCmd.is_alive || enemyCmd.carried_by_id != null) return false;
+  const enemyInfo = getCommanderFacingTarget(enemyCmd, allPieces);
+  if (!enemyInfo) return false;
+  const hqRoot = getRootCarrier(hq, allPieces);
+  const ignored = new Set<string>([
+    hq.piece_id,
+    hqRoot.piece_id,
+    enemyCmd.piece_id,
+    enemyInfo.rootId,
+    ...ignorePieceIds,
+  ]);
   const visible = allPieces.filter((p) => p.is_alive && !p.carried_by_id);
-  if (hq.position.x === enemyCmd.position.x) {
-    const x = hq.position.x;
-    const minY = Math.min(hq.position.y, enemyCmd.position.y);
-    const maxY = Math.max(hq.position.y, enemyCmd.position.y);
+  if (hqRoot.position.x === enemyInfo.position.x) {
+    const x = hqRoot.position.x;
+    const minY = Math.min(hqRoot.position.y, enemyInfo.position.y);
+    const maxY = Math.max(hqRoot.position.y, enemyInfo.position.y);
     const hasObstacle = visible.some(
       (p) =>
         p.position.x === x &&
         p.position.y > minY &&
         p.position.y < maxY &&
-        p.piece_id !== hq.piece_id &&
-        p.piece_id !== enemyCmd.piece_id
+        !ignored.has(p.piece_id)
     );
     if (!hasObstacle) return true;
   }
-  if (hq.position.y === enemyCmd.position.y) {
-    const y = hq.position.y;
-    const minX = Math.min(hq.position.x, enemyCmd.position.x);
-    const maxX = Math.max(hq.position.x, enemyCmd.position.x);
+  if (hqRoot.position.y === enemyInfo.position.y) {
+    const y = hqRoot.position.y;
+    const minX = Math.min(hqRoot.position.x, enemyInfo.position.x);
+    const maxX = Math.max(hqRoot.position.x, enemyInfo.position.x);
     const hasObstacle = visible.some(
       (p) =>
         p.position.y === y &&
         p.position.x > minX &&
         p.position.x < maxX &&
-        p.piece_id !== hq.piece_id &&
-        p.piece_id !== enemyCmd.piece_id
+        !ignored.has(p.piece_id)
     );
     if (!hasObstacle) return true;
   }
@@ -657,7 +701,7 @@ function canNestPair(
 ): boolean {
   const outerFree: PieceState = { ...outer, carried_by_id: null, carrying_piece_ids: [] };
   const innerFree: PieceState = { ...inner, carried_by_id: null };
-  if (!canBoardCarrier(innerFree, outerFree)) return false;
+  if (!canBoardCarrier(innerFree, outerFree, allPieces)) return false;
   if (outer.type === 'ENGINEER' && originY !== 5 && originY !== 6) return false;
   const totalNested = 1 + getAllCarriedPieceIds(inner.piece_id, allPieces).length;
   const maxCap = outer.type === 'ENGINEER' || outer.type === 'HEADQUARTERS' ? 1 : 2;
@@ -732,7 +776,7 @@ export function simulateAction(action: LegalAction, pieces: PieceState[]): Piece
   const isCarrierPickingUp =
     action.action_type === 'BOARD' &&
     target != null &&
-    canBoardCarrier(target, actor);
+    canBoardCarrier(target, actor, pieces);
 
   const actorOrigin = getRootCarrier(actor, pieces).position;
   const enemySide = actor.side === 'RED' ? 'BLUE' : 'RED';
@@ -917,7 +961,7 @@ export function getMockLegalActions(
     if (isSeaSquare(nx)) {
       const occ = getPieceAt(nx, ny);
       if (occ) {
-        if (occ.side !== side || canBoardCarrier(selectedPiece, occ)) {
+        if (occ.side !== side || canBoardCarrier(selectedPiece, occ, allPieces)) {
           return true;
         }
       }
@@ -1080,7 +1124,7 @@ export function getMockLegalActions(
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
-          } else if (canBoardCarrier(selectedPiece, occ)) {
+          } else if (canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
           break;
@@ -1112,9 +1156,9 @@ export function getMockLegalActions(
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
-          } else if (selectedPiece.type === 'ENGINEER' && canBoardCarrier(occ, selectedPiece) && !occ.carried_by_id) {
+          } else if (selectedPiece.type === 'ENGINEER' && canBoardCarrier(occ, selectedPiece, allPieces) && !occ.carried_by_id) {
             pushPickup(occ);
-          } else if (canBoardCarrier(selectedPiece, occ)) {
+          } else if (canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
           break;
@@ -1149,7 +1193,7 @@ export function getMockLegalActions(
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
-          } else if (canBoardCarrier(selectedPiece, occ)) {
+          } else if (canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
           break;
@@ -1182,9 +1226,9 @@ export function getMockLegalActions(
             } else {
               pushCapture(nx, ny, occ, 'CAPTURE_REPLACE');
             }
-          } else if (canBoardCarrier(occ, selectedPiece) && !occ.carried_by_id) {
+          } else if (canBoardCarrier(occ, selectedPiece, allPieces) && !occ.carried_by_id) {
             pushPickup(occ);
-          } else if (canBoardCarrier(selectedPiece, occ)) {
+          } else if (canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
           break; // Bị cản
@@ -1216,7 +1260,7 @@ export function getMockLegalActions(
             pushMove(nx, ny);
           }
         } else {
-          if (occ.side === side && canBoardCarrier(selectedPiece, occ)) {
+          if (occ.side === side && canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
           break;
@@ -1251,7 +1295,7 @@ export function getMockLegalActions(
             pushMove(nx, ny);
           }
         } else {
-          if (occ.side === side && canBoardCarrier(selectedPiece, occ)) {
+          if (occ.side === side && canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
           break;
@@ -1295,7 +1339,7 @@ export function getMockLegalActions(
             pushMove(nx, ny);
           }
         } else {
-          if (step === 1 && canBoardCarrier(selectedPiece, occ)) {
+          if (step === 1 && canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
           break; // Bị cản
@@ -1352,9 +1396,9 @@ export function getMockLegalActions(
           }
           // Được phép bay qua biển để tới tàu chiến hoặc bờ bên kia
         } else if (occ.side === side) {
-          if (canBoardCarrier(occ, selectedPiece) && !occ.carried_by_id && !isSeaSquare(nx)) {
+          if (canBoardCarrier(occ, selectedPiece, allPieces) && !occ.carried_by_id && !isSeaSquare(nx)) {
             pushPickup(occ);
-          } else if (occ.type === 'NAVY' && canBoardCarrier(selectedPiece, occ)) {
+          } else if (occ.type === 'NAVY' && canBoardCarrier(selectedPiece, occ, allPieces)) {
             pushBoard(occ);
           }
         } else {
@@ -1418,14 +1462,12 @@ export function getMockLegalActions(
               occ,
               isSeaSquare(nx) || isHqShelteringCommander(occ, allPieces) ? 'CAPTURE_STAND' : 'CAPTURE_REPLACE'
             );
-          } else if (step === 1 && occ.side === side) {
-            // Vào Sở chỉ huy (Q9)
-            if (occ.type === 'HEADQUARTERS' && !occ.is_hero) {
-              if (!enemyCmd || !isHqFacingEnemyCommander(occ, enemyCmd, allPieces)) {
+          } else if (occ.side === side) {
+            // Lên phương tiện / Sở chỉ huy (Q9 & DEC-021): cấm lên nếu phương tiện/SCH đang đối mặt Tư lệnh địch
+            if (canBoardCarrier(selectedPiece, occ, allPieces)) {
+              if (!enemyCmd || !isHqFacingEnemyCommander(occ, enemyCmd, allPieces, [selectedPiece.piece_id])) {
                 pushBoard(occ);
               }
-            } else if (canBoardCarrier(selectedPiece, occ)) {
-              pushBoard(occ);
             }
           }
           break; // Bị cản
@@ -1470,7 +1512,7 @@ export function getMockLegalActions(
           if (occ.type === 'NAVY') {
             break; // Bị tàu chiến cùng phe cản hoàn toàn
           }
-          if (canBoardCarrier(occ, selectedPiece) && !occ.carried_by_id) {
+          if (canBoardCarrier(occ, selectedPiece, allPieces) && !occ.carried_by_id) {
             pushPickup(occ);
           }
           continue; // Đi vượt quân đất liền cùng phe ở bờ biển/bờ sông!
@@ -1644,7 +1686,7 @@ export function applyMockAction(
     action.action_type === 'BOARD' &&
     actor != null &&
     target != null &&
-    canBoardCarrier(target, actor);
+    canBoardCarrier(target, actor, pieces);
 
   const leaveBehind =
     actor != null &&

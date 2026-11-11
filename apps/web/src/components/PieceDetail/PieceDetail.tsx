@@ -11,6 +11,8 @@ interface PieceDetailProps {
   allPieces?: PieceState[];
   onSelectPiece?: (piece: PieceState) => void;
   lang: Language;
+  movedPieceIds?: string[];
+  readOnly?: boolean;
 }
 
 export const PieceDetail: React.FC<PieceDetailProps> = ({
@@ -18,6 +20,8 @@ export const PieceDetail: React.FC<PieceDetailProps> = ({
   allPieces = [],
   onSelectPiece,
   lang,
+  movedPieceIds = [],
+  readOnly = false,
 }) => {
   const t = translations[lang];
 
@@ -120,49 +124,100 @@ export const PieceDetail: React.FC<PieceDetailProps> = ({
           </span>
 
           {/* Carrier */}
-          <div
-            className={`${styles.compoundRow} ${
-              piece.piece_id === compoundCarrier.piece_id ? styles.compoundItemActive : ''
-            }`}
-          >
-            <span className={styles.compoundItemName}>
-              🚜 {lang === 'vi' ? PIECE_VIETNAMESE_NAMES[compoundCarrier.type] : PIECE_ENGLISH_NAMES[compoundCarrier.type]} (Phương tiện)
-            </span>
-            {onSelectPiece && piece.piece_id !== compoundCarrier.piece_id && (
-              <button
-                type="button"
-                className={styles.compoundSelectBtn}
-                onClick={() => onSelectPiece(compoundCarrier)}
+          {(() => {
+            const carrierHasMoved = movedPieceIds.includes(compoundCarrier.piece_id);
+            const carrierName =
+              lang === 'vi'
+                ? PIECE_VIETNAMESE_NAMES[compoundCarrier.type]
+                : PIECE_ENGLISH_NAMES[compoundCarrier.type];
+            const carrierDisabled =
+              carrierHasMoved || (compoundCarrier.type === 'HEADQUARTERS' && !compoundCarrier.is_hero);
+            return (
+              <div
+                className={`${styles.compoundRow} ${
+                  piece.piece_id === compoundCarrier.piece_id ? styles.compoundItemActive : ''
+                }`}
               >
-                {lang === 'vi' ? 'Chọn xe' : 'Select'}
-              </button>
-            )}
-          </div>
+                <span className={styles.compoundItemName}>
+                  <img
+                    src={getPieceImageUrl(compoundCarrier.type, compoundCarrier.side)}
+                    alt={carrierName}
+                    className={styles.compoundPieceImg}
+                  />
+                  <span>
+                    {carrierName} ({lang === 'vi' ? 'Phương tiện' : 'Carrier'})
+                  </span>
+                </span>
+                {onSelectPiece && piece.piece_id !== compoundCarrier.piece_id && !readOnly && (
+                  <button
+                    type="button"
+                    disabled={carrierDisabled}
+                    className={styles.compoundSelectBtn}
+                    onClick={() => onSelectPiece(compoundCarrier)}
+                  >
+                    {carrierHasMoved
+                      ? lang === 'vi'
+                        ? 'Đã đi'
+                        : 'Acted'
+                      : compoundCarrier.type === 'HEADQUARTERS' && !compoundCarrier.is_hero
+                      ? lang === 'vi'
+                        ? 'Bất động'
+                        : 'Immobile'
+                      : lang === 'vi'
+                      ? 'Chọn xe'
+                      : 'Select'}
+                  </button>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Passengers */}
-          {compoundPassengers.map((psg) => (
-            <div
-              key={psg.piece_id}
-              className={`${styles.compoundRow} ${
-                piece.piece_id === psg.piece_id ? styles.compoundItemActive : ''
-              }`}
-            >
-              <span className={styles.compoundItemName}>
-                {psg.type === 'COMMANDER' ? '⭐' : '🪖'}{' '}
-                {lang === 'vi' ? PIECE_VIETNAMESE_NAMES[psg.type] : PIECE_ENGLISH_NAMES[psg.type]}
-                {psg.type === 'COMMANDER' ? ' (Tư lệnh)' : ''}
-              </span>
-              {onSelectPiece && piece.piece_id !== psg.piece_id && (
-                <button
-                  type="button"
-                  className={styles.compoundSelectBtn}
-                  onClick={() => onSelectPiece(psg)}
-                >
-                  {lang === 'vi' ? 'Chọn quân' : 'Select'}
-                </button>
-              )}
-            </div>
-          ))}
+          {compoundPassengers.map((psg) => {
+            const psgName =
+              lang === 'vi' ? PIECE_VIETNAMESE_NAMES[psg.type] : PIECE_ENGLISH_NAMES[psg.type];
+            const psgHasMoved = movedPieceIds.includes(psg.piece_id);
+            return (
+              <div
+                key={psg.piece_id}
+                className={`${styles.compoundRow} ${
+                  piece.piece_id === psg.piece_id ? styles.compoundItemActive : ''
+                }`}
+              >
+                <span className={styles.compoundItemName}>
+                  <img
+                    src={getPieceImageUrl(psg.type, psg.side)}
+                    alt={psgName}
+                    className={styles.compoundPieceImg}
+                  />
+                  <span>
+                    {psgName}
+                    {psg.type === 'COMMANDER'
+                      ? lang === 'vi'
+                        ? ' (Tư lệnh)'
+                        : ' (Commander)'
+                      : ''}
+                  </span>
+                </span>
+                {onSelectPiece && piece.piece_id !== psg.piece_id && !readOnly && (
+                  <button
+                    type="button"
+                    disabled={psgHasMoved}
+                    className={styles.compoundSelectBtn}
+                    onClick={() => onSelectPiece(psg)}
+                  >
+                    {psgHasMoved
+                      ? lang === 'vi'
+                        ? 'Đã đi'
+                        : 'Acted'
+                      : lang === 'vi'
+                      ? 'Chọn quân'
+                      : 'Select'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

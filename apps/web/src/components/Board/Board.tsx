@@ -1,8 +1,13 @@
 import React, { useMemo } from 'react';
 import { PieceState, LegalAction, MoveRecord, ActiveCompoundState } from '../../types';
 import { boardToSvgPoint, formatCoordinateNotation, BOARD_GEOMETRY } from '../../utils/coordinates';
-import { getPieceImageUrl, PIECE_VIETNAMESE_NAMES } from '../../utils/assets';
-import { getAirDefenseZones, canCarrierLeaveCargoBehind, getRootCarrier, getAllCarriedPieceIds } from '../../services/mockGameService';
+import {
+  getPieceImageUrl,
+  PIECE_ENGLISH_NAMES,
+  PIECE_VIETNAMESE_NAMES,
+} from '../../utils/assets';
+import { getAirDefenseZones, getAllCarriedPieceIds } from '../../services/mockGameService';
+import { Language } from '../../i18n';
 import styles from './Board.module.css';
 
 interface BoardProps {
@@ -11,15 +16,15 @@ interface BoardProps {
   onSelectPiece: (piece: PieceState) => void;
   legalActions?: LegalAction[];
   onExecuteAction?: (action: LegalAction) => void;
-  onConfirmCompound?: () => void;
   lastMove?: MoveRecord | null;
   activeCompound?: ActiveCompoundState | null;
-  carryCargo?: boolean;
-  onToggleCarryCargo?: (carry: boolean) => void;
+  flipped?: boolean;
+  readOnly?: boolean;
+  lang?: Language;
 }
 
-const PIECE_SIZE = 60; // Kích thước quân cờ (to rõ hơn, tăng từ 54 -> 60)
-const HIT_RADIUS = 30; // Bán kính 30px < 37.23px (nghiêm ngặt < 1/2 đoạn thẳng 74.45px giữa 2 giao điểm)
+const PIECE_SIZE = 60;
+const HIT_RADIUS = 30;
 
 export const Board: React.FC<BoardProps> = ({
   pieces,
@@ -27,65 +32,19 @@ export const Board: React.FC<BoardProps> = ({
   onSelectPiece,
   legalActions = [],
   onExecuteAction,
-  onConfirmCompound,
   lastMove,
   activeCompound,
-  carryCargo = true,
-  onToggleCarryCargo,
+  flipped = false,
+  readOnly = false,
+  lang = 'vi',
 }) => {
-  // Find selected piece coordinates to subtly highlight its axis indicators
   const selectedPiece = pieces.find((p) => p.piece_id === selectedPieceId);
   const selectedX = selectedPiece ? selectedPiece.position.x : null;
   const selectedY = selectedPiece ? selectedPiece.position.y : null;
 
-  const isSelectedCarrierWithCargo = Boolean(
-    selectedPiece &&
-      selectedPiece.carrying_piece_ids &&
-      selectedPiece.carrying_piece_ids.length > 0 &&
-      selectedPiece.type !== 'HEADQUARTERS'
-  );
-
-  const canCarrierLeave = useMemo(() => {
-    if (!selectedPiece || !isSelectedCarrierWithCargo) return true;
-    return canCarrierLeaveCargoBehind(selectedPiece, pieces);
-  }, [selectedPiece, isSelectedCarrierWithCargo, pieces]);
-
-  // Check if selected piece belongs to a compound (carrier or passenger, including 3-level nesting)
-  const compoundCarrier = useMemo(() => {
-    if (activeCompound) {
-      const members = pieces.filter((p) => p.is_alive && activeCompound.memberIds.includes(p.piece_id));
-      const root = members.find((p) => !p.carried_by_id) || members[0];
-      return root || null;
-    }
-    if (!selectedPiece) return null;
-    const root = getRootCarrier(selectedPiece, pieces);
-    const hasActivePassengers = getAllCarriedPieceIds(root.piece_id, pieces).length > 0;
-    if (selectedPiece.carried_by_id || hasActivePassengers) {
-      return root;
-    }
-    return null;
-  }, [selectedPiece, pieces, activeCompound]);
-
-  const displayedCompoundMembers = useMemo(() => {
-    if (activeCompound) {
-      const members = pieces.filter((p) => p.is_alive && activeCompound.memberIds.includes(p.piece_id));
-      return members.sort((a, b) => {
-        if (!a.carried_by_id && b.carried_by_id) return -1;
-        if (a.carried_by_id && !b.carried_by_id) return 1;
-        return 0;
-      });
-    }
-    if (!compoundCarrier) return [];
-    const nestedIds = getAllCarriedPieceIds(compoundCarrier.piece_id, pieces);
-    if (nestedIds.length === 0) return [];
-    const passengers = nestedIds
-      .map((id) => pieces.find((p) => p.is_alive && p.piece_id === id))
-      .filter((p): p is PieceState => Boolean(p));
-    return [compoundCarrier, ...passengers];
-  }, [activeCompound, compoundCarrier, pieces]);
-
   // Khi click chọn quân Máy bay, tính toán Vành đai lửa phòng không bên đối phương
-  const isAircraftSelected = selectedPiece?.type === 'AIRCRAFT' && !selectedPiece.is_hero;
+  const isAircraftSelected =
+    !readOnly && selectedPiece?.type === 'AIRCRAFT' && !selectedPiece.is_hero;
   const enemySide = selectedPiece ? (selectedPiece.side === 'RED' ? 'BLUE' : 'RED') : null;
   const enemyAaZones = useMemo(() => {
     if (!isAircraftSelected || !enemySide) return [];
@@ -98,8 +57,8 @@ export const Board: React.FC<BoardProps> = ({
     const { from_pos, to_pos } = lastMove.action;
     if (!from_pos || !to_pos) return null;
 
-    const fromSvg = boardToSvgPoint(from_pos);
-    const toSvg = boardToSvgPoint(to_pos);
+    const fromSvg = boardToSvgPoint(from_pos, flipped);
+    const toSvg = boardToSvgPoint(to_pos, flipped);
     const dx = toSvg.svgX - fromSvg.svgX;
     const dy = toSvg.svgY - fromSvg.svgY;
     const dist = Math.hypot(dx, dy);
@@ -111,8 +70,8 @@ export const Board: React.FC<BoardProps> = ({
     if (!isSameSquare) {
       const ux = dx / dist;
       const uy = dy / dist;
-      const startOffset = 18; // Điểm bắt đầu bên ngoài vòng tròn xuất phát
-      const endOffset = 28;   // Điểm kết thúc vừa chạm rìa ngoài quân cờ ở đích đến
+      const startOffset = 18;
+      const endOffset = 28;
       if (dist > startOffset + endOffset) {
         lineStart = {
           x: fromSvg.svgX + ux * startOffset,
@@ -142,12 +101,11 @@ export const Board: React.FC<BoardProps> = ({
       lineEnd,
       side: lastMove.side,
     };
-  }, [lastMove]);
+  }, [lastMove, flipped]);
 
-  // Array of columns X: 0 to 10
   const cols = Array.from({ length: BOARD_GEOMETRY.totalCols }, (_, i) => i);
-  // Array of rows Y: 0 to 11
   const rows = Array.from({ length: BOARD_GEOMETRY.totalRows }, (_, i) => i);
+  const visibleLegalActions = readOnly ? [] : legalActions;
 
   return (
     <div className={styles.boardContainer}>
@@ -156,7 +114,6 @@ export const Board: React.FC<BoardProps> = ({
         className={styles.boardSvg}
         preserveAspectRatio="none"
       >
-        {/* SVG Marker Definitions for Last Move Arrowheads */}
         <defs>
           <marker
             id="lastMoveArrowheadRed"
@@ -180,9 +137,15 @@ export const Board: React.FC<BoardProps> = ({
           >
             <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#38bdf8" />
           </marker>
+          <clipPath id="carriedBadgeClip1" clipPathUnits="userSpaceOnUse">
+            <circle cx="0" cy="0" r="10.2" />
+          </clipPath>
+          <clipPath id="carriedBadgeClip2" clipPathUnits="userSpaceOnUse">
+            <circle cx="0" cy="0" r="9.2" />
+          </clipPath>
         </defs>
 
-        {/* Layer 1: Background SVG Board Asset */}
+        {/* Layer 1: Background SVG Board Asset (rotates cleanly around grid center (503, 470.5) when flipped) */}
         <image
           href="/assets/board/board.svg"
           x="0"
@@ -190,18 +153,21 @@ export const Board: React.FC<BoardProps> = ({
           width="1024"
           height="949"
           preserveAspectRatio="none"
+          transform={flipped ? 'rotate(180 503 470.5)' : undefined}
         />
 
         {/* Layer 2: CR-001 Board Coordinates (X and Y Axis Labels) */}
         <g className={styles.coordGroup}>
-          {/* Axis Indicators in corners */}
           <text x={28} y={32} className={styles.axisIndicator}>Y (Tung)</text>
           <text x={983} y={918} className={styles.axisIndicator}>X (Hoành)</text>
-          <text x={28} y={918} className={styles.axisIndicator}>[0;0]</text>
+          <text x={28} y={918} className={styles.axisIndicator}>
+            {flipped ? '[11;10]' : '[0;0]'}
+          </text>
 
-          {/* Bottom X Coordinates (x = 0..10) */}
+          {/* Bottom X Coordinates */}
           {cols.map((x) => {
-            const svgX = BOARD_GEOMETRY.xOrigin + x * BOARD_GEOMETRY.xStep;
+            const displayCol = flipped ? BOARD_GEOMETRY.totalCols - 1 - x : x;
+            const svgX = BOARD_GEOMETRY.xOrigin + displayCol * BOARD_GEOMETRY.xStep;
             const isColSelected = selectedX === x;
             return (
               <g key={`coord-b-x-${x}`} transform={`translate(${svgX}, 918)`}>
@@ -220,9 +186,10 @@ export const Board: React.FC<BoardProps> = ({
             );
           })}
 
-          {/* Top X Coordinates (x = 0..10) */}
+          {/* Top X Coordinates */}
           {cols.map((x) => {
-            const svgX = BOARD_GEOMETRY.xOrigin + x * BOARD_GEOMETRY.xStep;
+            const displayCol = flipped ? BOARD_GEOMETRY.totalCols - 1 - x : x;
+            const svgX = BOARD_GEOMETRY.xOrigin + displayCol * BOARD_GEOMETRY.xStep;
             const isColSelected = selectedX === x;
             return (
               <g key={`coord-t-x-${x}`} transform={`translate(${svgX}, 32)`}>
@@ -241,9 +208,10 @@ export const Board: React.FC<BoardProps> = ({
             );
           })}
 
-          {/* Left Y Coordinates (y = 0..11) */}
+          {/* Left Y Coordinates */}
           {rows.map((y) => {
-            const svgY = BOARD_GEOMETRY.yBottom - y * BOARD_GEOMETRY.yStep;
+            const displayRow = flipped ? BOARD_GEOMETRY.totalRows - 1 - y : y;
+            const svgY = BOARD_GEOMETRY.yBottom - displayRow * BOARD_GEOMETRY.yStep;
             const isRowSelected = selectedY === y;
             return (
               <g key={`coord-l-y-${y}`} transform={`translate(28, ${svgY})`}>
@@ -262,9 +230,10 @@ export const Board: React.FC<BoardProps> = ({
             );
           })}
 
-          {/* Right Y Coordinates (y = 0..11) */}
+          {/* Right Y Coordinates */}
           {rows.map((y) => {
-            const svgY = BOARD_GEOMETRY.yBottom - y * BOARD_GEOMETRY.yStep;
+            const displayRow = flipped ? BOARD_GEOMETRY.totalRows - 1 - y : y;
+            const svgY = BOARD_GEOMETRY.yBottom - displayRow * BOARD_GEOMETRY.yStep;
             const isRowSelected = selectedY === y;
             return (
               <g key={`coord-r-y-${y}`} transform={`translate(983, ${svgY})`}>
@@ -284,11 +253,11 @@ export const Board: React.FC<BoardProps> = ({
           })}
         </g>
 
-        {/* Layer 2.7: Enemy Air Defense Zone (Vành đai lửa phòng không đối phương khi chọn Máy bay) */}
+        {/* Layer 2.7: Enemy Air Defense Zone */}
         {enemyAaZones.length > 0 && (
           <g className={styles.airDefenseLayer}>
             {enemyAaZones.map(({ x, y }) => {
-              const { svgX, svgY } = boardToSvgPoint({ x, y });
+              const { svgX, svgY } = boardToSvgPoint({ x, y }, flipped);
               return (
                 <g key={`aa-${x}-${y}`} transform={`translate(${svgX}, ${svgY})`} className={styles.aaZoneGroup}>
                   <circle cx={0} cy={0} r={22} className={styles.aaZoneCircle} />
@@ -296,17 +265,20 @@ export const Board: React.FC<BoardProps> = ({
                   <text x={0} y={1} className={styles.aaFlameIcon}>
                     🔥
                   </text>
-                  <title>Vành đai lửa phòng không đối phương (Vùng cấm bay)</title>
+                  <title>
+                    {lang === 'vi'
+                      ? 'Vành đai lửa phòng không đối phương (Vùng cấm bay)'
+                      : 'Enemy Air Defense Envelope (No-Fly Zone)'}
+                  </title>
                 </g>
               );
             })}
           </g>
         )}
 
-        {/* Layer 2.8: Last Move Trajectory Layer (Hiển thị nước vừa đi: vòng tròn xuất phát, đường thẳng mũi tên, vòng tròn đích đến) */}
+        {/* Layer 2.8: Last Move Trajectory Layer */}
         {lastMoveGeometry && (
           <g className={styles.lastMoveLayer} pointerEvents="none">
-            {/* 1. Vòng tròn vị trí xuất phát (Departure Square Highlight) */}
             <g transform={`translate(${lastMoveGeometry.fromSvg.svgX}, ${lastMoveGeometry.fromSvg.svgY})`}>
               <circle
                 cx={0}
@@ -330,7 +302,6 @@ export const Board: React.FC<BoardProps> = ({
               />
             </g>
 
-            {/* 2. Đường thẳng mũi tên chỉ hướng nước vừa đi đến đích */}
             {!lastMoveGeometry.isSameSquare && (
               <line
                 x1={lastMoveGeometry.lineStart.x}
@@ -350,7 +321,6 @@ export const Board: React.FC<BoardProps> = ({
               />
             )}
 
-            {/* 3. Vòng tròn đánh dấu vị trí đích đến của quân cờ (Arrival Square Highlight) */}
             <g transform={`translate(${lastMoveGeometry.toSvg.svgX}, ${lastMoveGeometry.toSvg.svgY})`}>
               <circle
                 cx={0}
@@ -366,19 +336,25 @@ export const Board: React.FC<BoardProps> = ({
           </g>
         )}
 
-        {/* Layer 3: Pieces Rendering Layer (Fixed BUG-001) */}
+        {/* Layer 3: Pieces Rendering Layer */}
         {pieces.map((piece) => {
           if (!piece.is_alive || piece.carried_by_id) return null;
 
-          const { svgX, svgY } = boardToSvgPoint(piece.position);
+          const { svgX, svgY } = boardToSvgPoint(piece.position, flipped);
           const isSelected = selectedPieceId === piece.piece_id;
           const imgUrl = getPieceImageUrl(piece.type, piece.side);
-          const pieceName = PIECE_VIETNAMESE_NAMES[piece.type];
+          const pieceName =
+            lang === 'vi'
+              ? PIECE_VIETNAMESE_NAMES[piece.type]
+              : PIECE_ENGLISH_NAMES[piece.type];
           const coordText = formatCoordinateNotation(piece.position);
 
-          // QUY TẮC 3: Khi đang trong lượt của tổ hợp (STACK_ACTIVE), người chơi không thể điều khiển quân ở ngoài tổ hợp đó!
           const isBlockedByActiveCompound =
-            activeCompound && !activeCompound.memberIds.includes(piece.piece_id);
+            !readOnly && activeCompound && !activeCompound.memberIds.includes(piece.piece_id);
+
+          const carriedUnits = getAllCarriedPieceIds(piece.piece_id, pieces)
+            .map((id) => pieces.find((p) => p.is_alive && p.piece_id === id))
+            .filter((p): p is PieceState => Boolean(p));
 
           return (
             <g
@@ -386,9 +362,7 @@ export const Board: React.FC<BoardProps> = ({
               className={`${styles.pieceGroup} ${isBlockedByActiveCompound ? styles.pieceGroupBlocked : ''}`}
               onClick={() => {
                 if (isBlockedByActiveCompound) return;
-                // Ở sở chỉ huy thường (chưa phong Anh hùng), sở chỉ huy không thể di chuyển nên nếu có Tư lệnh trong đó,
-                // click vào sẽ tự động chọn Tư lệnh để di chuyển ra ngoài!
-                if (piece.type === 'HEADQUARTERS' && !piece.is_hero) {
+                if (!readOnly && piece.type === 'HEADQUARTERS' && !piece.is_hero) {
                   const cmdInside = pieces.find(
                     (p) =>
                       p.is_alive &&
@@ -404,13 +378,9 @@ export const Board: React.FC<BoardProps> = ({
               }}
               transform={`translate(${svgX}, ${svgY})`}
             >
-              {/* Stable hit area circle - fixes BUG-001 by guaranteeing cursor hit target remains invariant */}
               <circle cx={0} cy={0} r={HIT_RADIUS} className={styles.pieceHitArea} />
-
-              {/* Hover ring indicator */}
               <circle cx={0} cy={0} r={HIT_RADIUS + 1} className={styles.hoverRing} />
 
-              {/* Selection Highlight Ring */}
               {isSelected && (
                 <circle
                   cx={0}
@@ -422,7 +392,6 @@ export const Board: React.FC<BoardProps> = ({
                 />
               )}
 
-              {/* Piece Image centered on intersection - pointer-events: none ensures mouse events target the group */}
               <image
                 href={imgUrl}
                 x={-PIECE_SIZE / 2}
@@ -432,11 +401,11 @@ export const Board: React.FC<BoardProps> = ({
                 className={styles.pieceImage}
               >
                 <title>
-                  {pieceName} ({piece.side === 'RED' ? 'Đỏ' : 'Xanh'}) {coordText}
+                  {pieceName} ({piece.side === 'RED' ? (lang === 'vi' ? 'Đỏ' : 'Red') : (lang === 'vi' ? 'Xanh' : 'Blue')}) {coordText}
                 </title>
               </image>
 
-              {/* Hero Star Badge if heroic - Ngôi sao vàng nhỏ nằm ở góc trên quân cờ */}
+              {/* Hero Star Badge */}
               {piece.is_hero && (
                 <g className={styles.heroBadge} transform="translate(18, -18)">
                   <circle cx={0} cy={0} r={9} className={styles.heroBadgeBg} />
@@ -446,29 +415,85 @@ export const Board: React.FC<BoardProps> = ({
                 </g>
               )}
 
-              {/* Passenger Badge if carrier unit has passengers on board */}
-              {(() => {
-                const passengerCount = getAllCarriedPieceIds(piece.piece_id, pieces).length;
-                if (passengerCount === 0) return null;
+              {/* Circular Carried Piece Image Badges at Bottom */}
+              {carriedUnits.length === 1 && (() => {
+                const passenger = carriedUnits[0];
+                const pImg = getPieceImageUrl(passenger.type, passenger.side);
+                const pName =
+                  lang === 'vi'
+                    ? PIECE_VIETNAMESE_NAMES[passenger.type]
+                    : PIECE_ENGLISH_NAMES[passenger.type];
                 return (
-                  <g className={styles.passengerBadge} transform="translate(18, 18)">
-                    <circle cx={0} cy={0} r={9} className={styles.passengerBadgeBg} />
-                    <text x={0} y={1} className={styles.passengerBadgeText}>
-                      +{passengerCount}
-                    </text>
+                  <g className={styles.passengerBadge} transform="translate(0, 22)">
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={11.5}
+                      className={`${styles.passengerBadgeBg} ${
+                        passenger.is_hero ? styles.passengerBadgeHeroBg : ''
+                      }`}
+                    />
+                    <image
+                      href={pImg}
+                      x={-11.5}
+                      y={-11.5}
+                      width={23}
+                      height={23}
+                      clipPath="url(#carriedBadgeClip1)"
+                      preserveAspectRatio="xMidYMid slice"
+                    />
                     <title>
-                      {pieceName} đang cõng {passengerCount} quân
+                      {pieceName}{' '}
+                      {lang === 'vi' ? `đang cõng ${pName}` : `carrying ${pName}`}
                     </title>
                   </g>
                 );
               })()}
+
+              {carriedUnits.length >= 2 && (
+                <g className={styles.passengerBadge}>
+                  {carriedUnits.slice(0, 2).map((passenger, idx) => {
+                    const pImg = getPieceImageUrl(passenger.type, passenger.side);
+                    const pName =
+                      lang === 'vi'
+                        ? PIECE_VIETNAMESE_NAMES[passenger.type]
+                        : PIECE_ENGLISH_NAMES[passenger.type];
+                    const offsetX = idx === 0 ? -11 : 11;
+                    return (
+                      <g
+                        key={`carried-badge-${passenger.piece_id}`}
+                        transform={`translate(${offsetX}, 22)`}
+                      >
+                        <circle
+                          cx={0}
+                          cy={0}
+                          r={10.3}
+                          className={`${styles.passengerBadgeBg} ${
+                            passenger.is_hero ? styles.passengerBadgeHeroBg : ''
+                          }`}
+                        />
+                        <image
+                          href={pImg}
+                          x={-10.5}
+                          y={-10.5}
+                          width={21}
+                          height={21}
+                          clipPath="url(#carriedBadgeClip2)"
+                          preserveAspectRatio="xMidYMid slice"
+                        />
+                        <title>{pName}</title>
+                      </g>
+                    );
+                  })}
+                </g>
+              )}
             </g>
           );
         })}
 
-        {/* Layer 4: Tactical Legal Action Targets Layer (Move dots & Attack reticles) */}
+        {/* Layer 4: Tactical Legal Action Targets Layer */}
         {Array.from(
-          legalActions.reduce((map, act) => {
+          visibleLegalActions.reduce((map, act) => {
             const key = `${act.to_pos.x}_${act.to_pos.y}`;
             if (!map.has(key)) map.set(key, []);
             map.get(key)!.push(act);
@@ -476,10 +501,9 @@ export const Board: React.FC<BoardProps> = ({
           }, new Map<string, LegalAction[]>())
         ).map(([key, acts]) => {
           const sample = acts[0];
-          const { svgX, svgY } = boardToSvgPoint(sample.to_pos);
+          const { svgX, svgY } = boardToSvgPoint(sample.to_pos, flipped);
 
           if (acts.length > 1) {
-            // Multiple actions on same square (e.g. Bombing vs Occupying for Aircraft/Artillery)
             return (
               <g key={`group-${key}`} transform={`translate(${svgX}, ${svgY})`}>
                 {acts.map((act, idx) => {
@@ -518,7 +542,6 @@ export const Board: React.FC<BoardProps> = ({
             );
           }
 
-          // Single action on square
           const action = acts[0];
           const isCapture =
             action.action_type === 'CAPTURE_REPLACE' ||
@@ -539,11 +562,9 @@ export const Board: React.FC<BoardProps> = ({
               }}
               transform={`translate(${svgX}, ${svgY})`}
             >
-              {/* Stable hit area for target */}
               <circle cx={0} cy={0} r={HIT_RADIUS} className={styles.actionHitArea} />
 
               {isCapture ? (
-                // Capture / Bombardment Reticle
                 <g>
                   <circle
                     cx={0}
@@ -560,7 +581,6 @@ export const Board: React.FC<BoardProps> = ({
                   )}
                 </g>
               ) : isBoard ? (
-                // Boarding / Transport Reticle (distinct cyan/gold ring with transport icon)
                 <g className={styles.boardActionGroup}>
                   <circle cx={0} cy={0} r={HIT_RADIUS + 2} className={styles.boardReticle} />
                   <rect x={-11} y={-11} width={22} height={22} rx={4} className={styles.boardBadge} />
@@ -568,7 +588,6 @@ export const Board: React.FC<BoardProps> = ({
                   <title>{action.description}</title>
                 </g>
               ) : (
-                // Move destination dot & halo
                 <>
                   <circle
                     cx={0}
@@ -595,95 +614,6 @@ export const Board: React.FC<BoardProps> = ({
           );
         })}
       </svg>
-
-      {/* Floating Compound Dock */}
-      {displayedCompoundMembers.length > 1 && (
-        <div className={styles.compoundDock}>
-          <div className={styles.compoundHeader}>
-            <span className={styles.compoundBadge}>
-              {compoundCarrier?.type === 'HEADQUARTERS' ? '🏛️ SỞ CHỈ HUY' : '🚜 TỔ HỢP CÕNG QUÂN'}
-              {activeCompound ? ' (ĐANG TÁC CHIẾN)' : ''}
-            </span>
-            <span className={styles.compoundCoords}>
-              [{compoundCarrier ? compoundCarrier.position.y : activeCompound?.originPos.y} ; {compoundCarrier ? compoundCarrier.position.x : activeCompound?.originPos.x}]
-            </span>
-          </div>
-          {isSelectedCarrierWithCargo && (
-            <div className={styles.cargoToggleContainer}>
-              <label className={styles.cargoToggleLabel}>
-                <input
-                  type="checkbox"
-                  checked={carryCargo}
-                  disabled={!canCarrierLeave}
-                  onChange={(e) => onToggleCarryCargo?.(e.target.checked)}
-                />
-                <span className={styles.cargoToggleText}>
-                  🎒 {carryCargo ? 'Cõng theo quân khi di chuyển' : 'Tách lẻ đi một mình (để lại quân)'}
-                </span>
-              </label>
-              {!canCarrierLeave && (
-                <span
-                  className={styles.cargoWarningNotice}
-                  title="Quy tắc 2: Quân chở chở hai quân không thể chở nhau thì không thể tách lẻ bỏ lại cả hai!"
-                >
-                  ⚠️ Bắt buộc cõng (Quy tắc 2)
-                </span>
-              )}
-            </div>
-          )}
-          <div className={styles.compoundUnitsList}>
-            {displayedCompoundMembers.map((member) => {
-              const hasMoved = activeCompound?.movedPieceIds.includes(member.piece_id);
-              const isSelected = selectedPieceId === member.piece_id;
-              const isCarrier = member.piece_id === compoundCarrier?.piece_id;
-              const isHQ = member.type === 'HEADQUARTERS';
-              const icon = isHQ
-                ? '🏛️'
-                : member.type === 'COMMANDER'
-                ? '⭐'
-                : isCarrier
-                ? '🚜'
-                : '🪖';
-
-              if (isHQ && !member.is_hero) {
-                return (
-                  <span
-                    key={member.piece_id}
-                    className={styles.compoundCoords}
-                    style={{ color: '#fbbf24', padding: '4px 6px' }}
-                  >
-                    🏛️ Sở chỉ huy (Bất động)
-                  </span>
-                );
-              }
-
-              return (
-                <button
-                  key={member.piece_id}
-                  type="button"
-                  disabled={hasMoved}
-                  className={`${styles.compoundUnitBtn} ${isSelected ? styles.compoundUnitBtnActive : ''} ${hasMoved ? styles.compoundUnitBtnDisabled : ''}`}
-                  onClick={() => onSelectPiece(member)}
-                  title={hasMoved ? 'Quân này đã hoàn thành nước đi trong lượt tổ hợp' : 'Bấm để chọn quân này di chuyển'}
-                >
-                  {icon} {PIECE_VIETNAMESE_NAMES[member.type]}
-                  {hasMoved ? ' (Đã đi)' : isSelected ? ' (Đang chọn)' : ''}
-                </button>
-              );
-            })}
-            {activeCompound && onConfirmCompound && (
-              <button
-                type="button"
-                className={styles.compoundConfirmBtn}
-                onClick={onConfirmCompound}
-                title="Bấm để kết thúc lượt của tổ hợp ngay lập tức và chuyển quyền đi sang đối phương"
-              >
-                ✅ Hoàn tất lượt tổ hợp
-              </button>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -39,6 +39,14 @@ export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
             >
               {t.home.btnViewRules}
             </button>
+            <button
+              type="button"
+              className="btn btn-outline-gold"
+              style={{ padding: '0.8rem 1.3rem' }}
+              onClick={() => onNavigate('replays')}
+            >
+              📊 {t.home.analysisTitle}
+            </button>
           </div>
         </div>
 
@@ -138,7 +146,28 @@ export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
             </div>
           </div>
 
-          {/* Card 3: AI vs AI Spectator */}
+          {/* Card 3: Game Analysis Record (Active) */}
+          <div
+            className={styles.modeCard}
+            onClick={() => onNavigate('replays')}
+            role="button"
+            tabIndex={0}
+          >
+            <div>
+              <div className={styles.modeTop}>
+                <div className={styles.modeIconBadge}>📊</div>
+                <span className="badge">{t.home.statusReady}</span>
+              </div>
+              <h3 className={styles.modeTitle}>{t.home.analysisTitle}</h3>
+              <p className={styles.modeDesc}>{t.home.analysisDesc}</p>
+            </div>
+            <div className={styles.modeActionHint}>
+              <span>{lang === 'vi' ? 'Mở phân tích biên bản' : 'Open Record Analyzer'}</span>
+              <span>→</span>
+            </div>
+          </div>
+
+          {/* Card 4: AI vs AI Spectator */}
           <div
             className={`${styles.modeCard} ${styles.modeCardDisabled}`}
             onClick={() => onNavigate('aiVsAi')}

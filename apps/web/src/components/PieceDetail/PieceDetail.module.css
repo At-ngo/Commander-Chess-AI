@@ -133,9 +133,20 @@
 }
 
 .compoundItemName {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.compoundPieceImg {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
 }
 
 .compoundSelectBtn {
@@ -151,8 +162,13 @@
   transition: all 120ms ease;
 }
 
-.compoundSelectBtn:hover {
+.compoundSelectBtn:hover:not(:disabled) {
   background: var(--gold-primary);
   color: #000;
+}
+
+.compoundSelectBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 

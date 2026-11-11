@@ -86,7 +86,7 @@
 }
 
 .navLink {
-  padding: 0.35rem 0.75rem;
+  padding: 0.35rem 0.7rem;
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -96,6 +96,7 @@
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .navLink:hover {

@@ -10,7 +10,7 @@ NOTE (AGENTS.md Rule 3 & 6):
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional, Dict, Set, Any
+from typing import List, Tuple, Optional, Dict, Set, Any, Sequence
 import time
 
 from ..models.enums import (
@@ -159,24 +159,39 @@ def get_root_carrier(piece: PieceState, pieces: List[PieceState]) -> PieceState:
     return cursor
 
 
-def can_board_carrier(passenger: PieceState, carrier: PieceState) -> bool:
+def can_board_carrier(
+    passenger: PieceState,
+    carrier: PieceState,
+    pieces: Optional[Sequence[PieceState]] = None,
+) -> bool:
     if carrier.side != passenger.side or not carrier.is_alive or not passenger.is_alive:
         return False
     if carrier.carried_by_id is not None:
         return False
     if passenger.piece_id == carrier.piece_id:
         return False
-    current_passengers = len(carrier.carrying_piece_ids)
+
+    piece_list = list(pieces) if pieces is not None else None
+    used_slots = (
+        len(get_all_carried_piece_ids(carrier.piece_id, piece_list))
+        if piece_list is not None
+        else len(carrier.carrying_piece_ids)
+    )
+    added_slots = 1 + (
+        len(get_all_carried_piece_ids(passenger.piece_id, piece_list))
+        if piece_list is not None
+        else len(passenger.carrying_piece_ids)
+    )
 
     if carrier.type == PieceType.TANK:
-        return current_passengers < 2 and passenger.type in (
+        return used_slots + added_slots <= 2 and passenger.type in (
             PieceType.INFANTRY,
             PieceType.MILITIA,
             PieceType.COMMANDER,
         )
 
     if carrier.type == PieceType.AIRCRAFT:
-        return current_passengers < 2 and passenger.type in (
+        return used_slots + added_slots <= 2 and passenger.type in (
             PieceType.INFANTRY,
             PieceType.MILITIA,
             PieceType.COMMANDER,
@@ -184,7 +199,7 @@ def can_board_carrier(passenger: PieceState, carrier: PieceState) -> bool:
         )
 
     if carrier.type == PieceType.NAVY:
-        return current_passengers < 2 and passenger.type in (
+        return used_slots + added_slots <= 2 and passenger.type in (
             PieceType.INFANTRY,
             PieceType.MILITIA,
             PieceType.COMMANDER,
@@ -194,7 +209,7 @@ def can_board_carrier(passenger: PieceState, carrier: PieceState) -> bool:
 
     if carrier.type == PieceType.ENGINEER:
         is_at_river_bank = carrier.position.y in (5, 6)
-        return is_at_river_bank and current_passengers < 1 and passenger.type in (
+        return is_at_river_bank and used_slots + added_slots <= 1 and passenger.type in (
             PieceType.ARTILLERY,
             PieceType.ANTI_AIR,
             PieceType.MISSILE,
@@ -203,7 +218,7 @@ def can_board_carrier(passenger: PieceState, carrier: PieceState) -> bool:
     if carrier.type == PieceType.HEADQUARTERS:
         if carrier.is_hero:
             return False
-        return current_passengers < 1 and passenger.type == PieceType.COMMANDER
+        return used_slots + added_slots <= 1 and passenger.type == PieceType.COMMANDER
 
     return False
 
@@ -212,7 +227,7 @@ def _can_nest_pair(inner: PieceState, outer: PieceState, pieces: List[PieceState
     """Kiểm tra khi phương tiện gốc tách lẻ bỏ lại 2 quân cõng trực tiếp thì 1 quân có cõng được quân kia không."""
     outer_free = outer.model_copy(update={"carried_by_id": None, "carrying_piece_ids": []})
     inner_free = inner.model_copy(update={"carried_by_id": None})
-    if not can_board_carrier(inner_free, outer_free):
+    if not can_board_carrier(inner_free, outer_free, pieces):
         return False
     if outer.type == PieceType.ENGINEER and origin_y not in (5, 6):
         return False
@@ -333,10 +348,37 @@ def is_aircraft_flight_affected_by_aa(
     return False
 
 
+def _get_commander_facing_target(
+    cmd: PieceState,
+    pieces: List[PieceState],
+) -> Optional[Tuple[Position, str]]:
+    """Trả về (vị trí đối mặt, root_id) của Tư lệnh, hoặc None nếu bị loại / trú trong Sở chỉ huy thường.
+
+    - Tư lệnh độc lập: đối mặt tại vị trí chính nó.
+    - Tư lệnh ngồi trên phương tiện cơ động (TANK, AIRCRAFT, NAVY — trực tiếp hoặc lồng nhau):
+      đối mặt tại vị trí phương tiện gốc đứng trên bàn.
+    - Chỉ Sở chỉ huy thường (`HEADQUARTERS` chưa Anh hùng) che chắn đối mặt khi Tư lệnh đã ở trong (Q9).
+    """
+    if not cmd.is_alive:
+        return None
+    by_id = {p.piece_id: p for p in pieces if p.is_alive}
+    cursor = cmd
+    seen = {cmd.piece_id}
+    while cursor.carried_by_id is not None:
+        parent = by_id.get(cursor.carried_by_id)
+        if not parent or parent.piece_id in seen:
+            break
+        if parent.type == PieceType.HEADQUARTERS and not parent.is_hero:
+            return None
+        seen.add(parent.piece_id)
+        cursor = parent
+    return cursor.position, cursor.piece_id
+
+
 def is_commanders_facing(pieces: List[PieceState]) -> bool:
     """Kiểm tra hai Tư lệnh đối mặt trực tiếp không có quân chắn.
-    Tư lệnh đang nằm trên phương tiện/trong Sở chỉ huy (bất kể Xe tăng, Máy bay, Tàu chiến hay HQ)
-    đều được che chắn khỏi đối mặt trực tiếp với Tư lệnh đối phương.
+    - Chỉ Sở chỉ huy thường (`!is_hero`) che chở Tư lệnh khỏi thế đối mặt khi đã vào trong (Q9).
+    - Tư lệnh ngồi trên phương tiện cơ động (Xe tăng, Máy bay, Tàu chiến) vẫn tính đối mặt tại vị trí phương tiện gốc (DEC-021).
     """
     red_cmd = next((p for p in pieces if p.is_alive and p.side == Side.RED and p.type == PieceType.COMMANDER), None)
     blue_cmd = next((p for p in pieces if p.is_alive and p.side == Side.BLUE and p.type == PieceType.COMMANDER), None)
@@ -344,19 +386,20 @@ def is_commanders_facing(pieces: List[PieceState]) -> bool:
     if not red_cmd or not blue_cmd:
         return False
 
-    if red_cmd.carried_by_id is not None:
-        if any(p.is_alive and p.piece_id == red_cmd.carried_by_id for p in pieces):
-            return False
-    if blue_cmd.carried_by_id is not None:
-        if any(p.is_alive and p.piece_id == blue_cmd.carried_by_id for p in pieces):
-            return False
+    red_info = _get_commander_facing_target(red_cmd, pieces)
+    blue_info = _get_commander_facing_target(blue_cmd, pieces)
+    if not red_info or not blue_info:
+        return False
+
+    r_pos, _r_root_id = red_info
+    b_pos, _b_root_id = blue_info
 
     visible = [p for p in pieces if p.is_alive and p.carried_by_id is None]
 
-    if red_cmd.position.x == blue_cmd.position.x:
-        x = red_cmd.position.x
-        min_y = min(red_cmd.position.y, blue_cmd.position.y)
-        max_y = max(red_cmd.position.y, blue_cmd.position.y)
+    if r_pos.x == b_pos.x:
+        x = r_pos.x
+        min_y = min(r_pos.y, b_pos.y)
+        max_y = max(r_pos.y, b_pos.y)
         has_obstacle = any(
             p.position.x == x and min_y < p.position.y < max_y
             for p in visible
@@ -364,10 +407,10 @@ def is_commanders_facing(pieces: List[PieceState]) -> bool:
         if not has_obstacle:
             return True
 
-    if red_cmd.position.y == blue_cmd.position.y:
-        y = red_cmd.position.y
-        min_x = min(red_cmd.position.x, blue_cmd.position.x)
-        max_x = max(red_cmd.position.x, blue_cmd.position.x)
+    if r_pos.y == b_pos.y:
+        y = r_pos.y
+        min_x = min(r_pos.x, b_pos.x)
+        max_x = max(r_pos.x, b_pos.x)
         has_obstacle = any(
             p.position.y == y and min_x < p.position.x < max_x
             for p in visible
@@ -378,27 +421,37 @@ def is_commanders_facing(pieces: List[PieceState]) -> bool:
     return False
 
 
-def is_hq_facing_enemy_commander(hq: PieceState, enemy_cmd: PieceState, pieces: List[PieceState]) -> bool:
-    if not enemy_cmd.is_alive or enemy_cmd.carried_by_id is not None:
+def is_hq_facing_enemy_commander(
+    hq: PieceState,
+    enemy_cmd: PieceState,
+    pieces: List[PieceState],
+    ignore_piece_ids: Optional[Set[str]] = None,
+) -> bool:
+    """Kiểm tra phương tiện / Sở chỉ huy có đang nằm trên đường nhìn thẳng của Tư lệnh địch hay không."""
+    enemy_info = _get_commander_facing_target(enemy_cmd, pieces)
+    if not enemy_info:
         return False
+    epos, enemy_root_id = enemy_info
+    hq_root = get_root_carrier(hq, pieces)
+    ignored = {hq.piece_id, hq_root.piece_id, enemy_cmd.piece_id, enemy_root_id} | (ignore_piece_ids or set())
     visible = [p for p in pieces if p.is_alive and p.carried_by_id is None]
-    if hq.position.x == enemy_cmd.position.x:
-        x = hq.position.x
-        min_y = min(hq.position.y, enemy_cmd.position.y)
-        max_y = max(hq.position.y, enemy_cmd.position.y)
+    if hq_root.position.x == epos.x:
+        x = hq_root.position.x
+        min_y = min(hq_root.position.y, epos.y)
+        max_y = max(hq_root.position.y, epos.y)
         has_obstacle = any(
-            p.position.x == x and min_y < p.position.y < max_y and p.piece_id not in (hq.piece_id, enemy_cmd.piece_id)
+            p.position.x == x and min_y < p.position.y < max_y and p.piece_id not in ignored
             for p in visible
         )
         if not has_obstacle:
             return True
 
-    if hq.position.y == enemy_cmd.position.y:
-        y = hq.position.y
-        min_x = min(hq.position.x, enemy_cmd.position.x)
-        max_x = max(hq.position.x, enemy_cmd.position.x)
+    if hq_root.position.y == epos.y:
+        y = hq_root.position.y
+        min_x = min(hq_root.position.x, epos.x)
+        max_x = max(hq_root.position.x, epos.x)
         has_obstacle = any(
-            p.position.y == y and min_x < p.position.x < max_x and p.piece_id not in (hq.piece_id, enemy_cmd.piece_id)
+            p.position.y == y and min_x < p.position.x < max_x and p.piece_id not in ignored
             for p in visible
         )
         if not has_obstacle:
@@ -615,7 +668,7 @@ def simulate_action(action: LegalAction, pieces: List[PieceState]) -> List[Piece
     is_carrier_pickup = (
         action.action_type == ActionType.BOARD
         and target is not None
-        and can_board_carrier(passenger=target, carrier=actor)
+        and can_board_carrier(passenger=target, carrier=actor, pieces=pieces)
     )
 
     actor_origin = get_root_carrier(actor, pieces).position
@@ -959,7 +1012,7 @@ class MockEngineAdapter(BaseEngineAdapter):
             if is_sea_square(nx):
                 target = piece_map.get((nx, ny))
                 if target:
-                    if target.side != piece.side or can_board_carrier(passenger=piece, carrier=target):
+                    if target.side != piece.side or can_board_carrier(passenger=piece, carrier=target, pieces=state.pieces):
                         return True
                 return False
             return True
@@ -1128,7 +1181,7 @@ class MockEngineAdapter(BaseEngineAdapter):
                                     else ActionType.CAPTURE_REPLACE
                                 )
                                 push_capture(nx, ny, target, act_type)
-                            elif can_board_carrier(piece, target):
+                            elif can_board_carrier(piece, target, state.pieces):
                                 push_board(target)
                             break
 
@@ -1152,9 +1205,9 @@ class MockEngineAdapter(BaseEngineAdapter):
                                     else ActionType.CAPTURE_REPLACE
                                 )
                                 push_capture(nx, ny, target, act_type)
-                            elif piece.type == PieceType.ENGINEER and can_board_carrier(passenger=target, carrier=piece) and not target.carried_by_id:
+                            elif piece.type == PieceType.ENGINEER and can_board_carrier(passenger=target, carrier=piece, pieces=state.pieces) and not target.carried_by_id:
                                 push_pickup(target)
-                            elif can_board_carrier(piece, target):
+                            elif can_board_carrier(piece, target, state.pieces):
                                 push_board(target)
                             break
 
@@ -1179,7 +1232,7 @@ class MockEngineAdapter(BaseEngineAdapter):
                                     else ActionType.CAPTURE_REPLACE
                                 )
                                 push_capture(nx, ny, target, act_type)
-                            elif can_board_carrier(piece, target):
+                            elif can_board_carrier(piece, target, state.pieces):
                                 push_board(target)
                             break
 
@@ -1203,9 +1256,9 @@ class MockEngineAdapter(BaseEngineAdapter):
                                     else ActionType.CAPTURE_REPLACE
                                 )
                                 push_capture(nx, ny, target, act_type)
-                            elif can_board_carrier(passenger=target, carrier=piece) and not target.carried_by_id:
+                            elif can_board_carrier(passenger=target, carrier=piece, pieces=state.pieces) and not target.carried_by_id:
                                 push_pickup(target)
-                            elif can_board_carrier(passenger=piece, carrier=target):
+                            elif can_board_carrier(passenger=piece, carrier=target, pieces=state.pieces):
                                 push_board(target)
                             break
 
@@ -1227,7 +1280,7 @@ class MockEngineAdapter(BaseEngineAdapter):
                             if can_piece_cross_river_to_empty(PieceType.MISSILE, x, y, nx, ny):
                                 push_move(nx, ny)
                         else:
-                            if target.side == active_side and can_board_carrier(piece, target):
+                            if target.side == active_side and can_board_carrier(piece, target, state.pieces):
                                 push_board(target)
                             break
                     # Pass 2: Penetrating capture over intermediate obstacles & deep river
@@ -1256,7 +1309,7 @@ class MockEngineAdapter(BaseEngineAdapter):
                             if can_piece_cross_river_to_empty(PieceType.MISSILE, x, y, nx, ny):
                                 push_move(nx, ny)
                         else:
-                            if target.side == active_side and can_board_carrier(piece, target):
+                            if target.side == active_side and can_board_carrier(piece, target, state.pieces):
                                 push_board(target)
                             break
                     for step in range(1, diag_range + 1):
@@ -1285,7 +1338,7 @@ class MockEngineAdapter(BaseEngineAdapter):
                             if can_piece_cross_river_to_empty(PieceType.ARTILLERY, x, y, nx, ny):
                                 push_move(nx, ny)
                         else:
-                            if step == 1 and can_board_carrier(piece, target):
+                            if step == 1 and can_board_carrier(piece, target, state.pieces):
                                 push_board(target)
                             break
 
@@ -1313,9 +1366,9 @@ class MockEngineAdapter(BaseEngineAdapter):
                             if not is_sea_square(nx):
                                 push_move(nx, ny)
                         elif target.side == active_side:
-                            if can_board_carrier(passenger=target, carrier=piece) and not target.carried_by_id and not is_sea_square(nx):
+                            if can_board_carrier(passenger=target, carrier=piece, pieces=state.pieces) and not target.carried_by_id and not is_sea_square(nx):
                                 push_pickup(target)
-                            elif target.type == PieceType.NAVY and can_board_carrier(piece, target):
+                            elif target.type == PieceType.NAVY and can_board_carrier(piece, target, state.pieces):
                                 push_board(target)
                         else:
                             if is_sea_square(nx) or is_hq_sheltering_commander(target, state.pieces):
@@ -1354,12 +1407,15 @@ class MockEngineAdapter(BaseEngineAdapter):
                                     else ActionType.CAPTURE_REPLACE
                                 )
                                 push_capture(nx, ny, target, act_type)
-                            elif step == 1 and target.side == active_side:
-                                if target.type == PieceType.HEADQUARTERS and not target.is_hero:
-                                    if not enemy_cmd or not is_hq_facing_enemy_commander(target, enemy_cmd, state.pieces):
+                            elif target.side == active_side:
+                                if can_board_carrier(piece, target, state.pieces):
+                                    if not enemy_cmd or not is_hq_facing_enemy_commander(
+                                        target,
+                                        enemy_cmd,
+                                        state.pieces,
+                                        ignore_piece_ids={piece.piece_id},
+                                    ):
                                         push_board(target)
-                                elif can_board_carrier(piece, target):
-                                    push_board(target)
                             break
 
             # 10. NAVY
@@ -1387,7 +1443,7 @@ class MockEngineAdapter(BaseEngineAdapter):
                         elif target.side == active_side:
                             if target.type == PieceType.NAVY:
                                 break
-                            if can_board_carrier(passenger=target, carrier=piece) and not target.carried_by_id:
+                            if can_board_carrier(passenger=target, carrier=piece, pieces=state.pieces) and not target.carried_by_id:
                                 push_pickup(target)
                             continue
                         else:
@@ -1583,7 +1639,9 @@ class MockEngineAdapter(BaseEngineAdapter):
         is_carrier_pickup = (
             request.action_type == ActionType.BOARD
             and target is not None
-            and can_board_carrier(passenger=target, carrier=actor)
+            and actor.carried_by_id is None
+            and target.carried_by_id is None
+            and can_board_carrier(passenger=target, carrier=actor, pieces=state.pieces)
         )
         actor_descendants = set(get_all_carried_piece_ids(actor.piece_id, state.pieces))
         target_descendants = set(get_all_carried_piece_ids(target.piece_id, state.pieces)) if target else set()
@@ -1760,6 +1818,7 @@ class MockEngineAdapter(BaseEngineAdapter):
             score_delta=score_delta,
             details={
                 "action_type": request.action_type.value,
+                "carry_cargo": bool(request.carry_cargo),
                 "is_check": actor_checked_commander,
                 "hero_promoted": actor_was_promoted,
                 "from_pos": {"x": actor_origin.x, "y": actor_origin.y},
@@ -2262,7 +2321,7 @@ class AuthoritativeEngineAdapter(BaseEngineAdapter):
                     target_piece is not None
                     and actor.carried_by_id is None
                     and target_piece.carried_by_id is None
-                    and can_board_carrier(passenger=target_piece, carrier=actor)
+                    and can_board_carrier(passenger=target_piece, carrier=actor, pieces=state.pieces)
                 )
                 if is_carrier_pickup:
                     pkg_action = PkgAtomicAction(
@@ -2393,6 +2452,7 @@ class AuthoritativeEngineAdapter(BaseEngineAdapter):
                 score_delta=score_delta,
                 details={
                     "action_type": request.action_type.value,
+                    "carry_cargo": bool(request.carry_cargo),
                     "is_check": actor_checked_commander or res.terminal_reason == "CHECKMATE",
                     "hero_promoted": actor_was_promoted,
                     "is_checkmate": res.terminal_reason == "CHECKMATE",
