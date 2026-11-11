@@ -2,8 +2,8 @@
 # Tham chiếu quy chuẩn: `research/experiments/common/README.md` & `research/experiments/TASK.md`
 
 defaults:
-  rules_version: "DEC-020"
-  engine_version: "commander_game_engine-dec020"
+  rules_version: "DEC-021"
+  engine_version: "commander_game_engine-dec021"
   games_per_pair: 200
   side_balance: true
   max_turns: 200
