@@ -31,8 +31,9 @@ else:
     __all__.extend(["RuleBasedAgent", "RulesAgent"])
 
 try:
+    from .evaluation import CCHEFEvaluator, DEFAULT_CCHEF_WEIGHTS, FEATURE_NAMES
     from .heuristic_agent import HeuristicAgent
 except ImportError:
     pass
 else:
-    __all__.append("HeuristicAgent")
+    __all__.extend(["CCHEFEvaluator", "DEFAULT_CCHEF_WEIGHTS", "FEATURE_NAMES", "HeuristicAgent"])

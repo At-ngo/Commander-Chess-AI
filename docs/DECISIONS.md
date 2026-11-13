@@ -321,3 +321,13 @@ Tài liệu này lưu lại toàn bộ các quyết định kỹ thuật, quy ư
   2. Khi Tư lệnh đang ngồi trong phương tiện vận tải cơ động (`TANK`, `AIRCRAFT`, `NAVY` — trực tiếp hoặc lồng nhau), vị trí đối mặt được tính theo **vị trí phương tiện gốc**; phương tiện đang chở Tư lệnh **không được dừng/đứng trên đường nhìn thẳng không vật cản của Tư lệnh đối phương** (kể cả khi `PICKUP` đón Tư lệnh), cũng như quân chắn giữa không được rời hàng/cột gây lộ mặt. Phương tiện vẫn được đi/bay vượt qua tuyến nhìn đó nếu điểm dừng cuối nằm ngoài tầm nhìn đối mặt, hoặc đi một mình tách cargo (`carry_cargo = False`).
   3. Sở chỉ huy thường (`HEADQUARTERS`, `!is_hero`) tiếp tục che chở Tư lệnh khỏi bị chiếu và khỏi đối mặt sau khi Tư lệnh đã ở bên trong an toàn (`Q9`), nhưng vẫn cấm Tư lệnh bước vào Sở chỉ huy đang bị Tư lệnh địch nhìn thẳng không vật cản.
 - **Tài liệu tham chiếu:** [GAME_RULES.md](file:///d:/Commander-Chess-AI/docs/GAME_RULES.md#L149), [rules.py](file:///d:/Commander-Chess-AI/packages/commander_game_engine/rules.py), [engine.py](file:///d:/Commander-Chess-AI/packages/commander_game_engine/engine.py), [engine_adapter.py](file:///d:/Commander-Chess-AI/apps/api/src/services/engine_adapter.py), [mockGameService.ts](file:///d:/Commander-Chess-AI/apps/web/src/services/mockGameService.ts)
+
+---
+
+### DEC-022: Hiệu chỉnh điểm Sở chỉ huy (`HEADQUARTERS`) từ 100 về 10 điểm
+- **Ngày quyết định:** 12/11/2026
+- **Trạng thái:** CONFIRMED
+- **Quyết định (do Project Owner xác nhận):**
+  - Sửa lỗi gõ dư một chữ số `0` ở điểm Sở chỉ huy (`HEADQUARTERS`): điều chỉnh giá trị từ `100` xuống **`10` điểm** (cộng thêm `+10` nếu là Sở chỉ huy Anh hùng = `20` điểm), giữ nguyên Tư lệnh (`COMMANDER`) = `100` điểm (+`50` thưởng kết thúc ván).
+  - Đồng bộ giá trị `HEADQUARTERS = 10` trên toàn bộ hệ thống: `packages/commander_game_engine/engine.py` (`PIECE_POINTS`), `apps/api/src/services/engine_adapter.py` (`PIECE_SCORES`), `apps/web/src/services/mockGameService.ts` (`PIECE_SCORES`), khớp với bảng vật chất CCHEF tại `packages/agents/evaluation/material_table.py` (`HEADQUARTERS = 10.0`).
+- **Tài liệu tham chiếu:** [GAME_RULES.md](file:///d:/Commander-Chess-AI/docs/GAME_RULES.md#L56), [engine.py](file:///d:/Commander-Chess-AI/packages/commander_game_engine/engine.py#L28), [engine_adapter.py](file:///d:/Commander-Chess-AI/apps/api/src/services/engine_adapter.py#L52), [mockGameService.ts](file:///d:/Commander-Chess-AI/apps/web/src/services/mockGameService.ts#L21), [material_table.py](file:///d:/Commander-Chess-AI/packages/agents/evaluation/material_table.py#L11)

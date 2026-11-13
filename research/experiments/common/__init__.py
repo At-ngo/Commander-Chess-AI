@@ -36,6 +36,9 @@ from .data_logger import (
     init_wandb_run,
     log_wandb_metrics,
     log_wandb_table,
+    matchup_subdir_name,
+    merge_csv_files,
+    sanitize_path_segment,
 )
 from .match_runner import (
     MatchResult,
@@ -137,6 +140,9 @@ __all__ = [
     "init_wandb_run",
     "log_wandb_metrics",
     "log_wandb_table",
+    "matchup_subdir_name",
+    "merge_csv_files",
+    "sanitize_path_segment",
     # profiling & reproducibility
     "ProfileResult",
     "ProfileScope",

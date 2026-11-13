@@ -2,16 +2,42 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 import csv
 import json
 from pathlib import Path
-from typing import Any, Sequence
+import re
+from typing import Any, Callable, Sequence
 import warnings
 
 from .config import prepare_run_directory
 from .imports import HAS_WANDB, PROJECT_ROOT, RUNS_DIR, load_dotenv, pd, wandb
 from .match_runner import MatchResult
 from .reproducibility import capture_reproducibility_metadata
+
+
+def sanitize_path_segment(name: str) -> str:
+    """Chuẩn hóa tên agent/chế độ thành tên thư mục an toàn trên Windows/Linux."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(name).strip()).strip("._-")
+    return cleaned or "unknown"
+
+
+def matchup_subdir_name(
+    match: MatchResult,
+    *,
+    include_budget_mode: bool = False,
+    canonical_pair: bool = True,
+) -> str:
+    """Sinh tên thư mục phân loại cặp đấu (`<agent_a>_vs_<agent_b>` hoặc `<mode>/<agent_a>_vs_<agent_b>`)."""
+    if canonical_pair and getattr(match, "slot_a_side", None) == "blue":
+        first, second = match.blue_agent, match.red_agent
+    else:
+        first, second = match.red_agent, match.blue_agent
+    pair_seg = f"{sanitize_path_segment(first)}_vs_{sanitize_path_segment(second)}"
+    if include_budget_mode:
+        mode_seg = sanitize_path_segment(getattr(match, "budget_mode", "default") or "default")
+        return f"{mode_seg}/{pair_seg}"
+    return pair_seg
 
 
 class ExperimentLogger:
@@ -98,11 +124,41 @@ class ExperimentLogger:
         *,
         run_id: str = "",
         subdir: str = "game_records",
+        pair_subdir: str | None = None,
+        group_by_matchup: bool = False,
+        include_budget_mode: bool = False,
+        subdir_fn: Callable[[MatchResult], str] | None = None,
+        start_index: int = 1,
     ) -> list[Path]:
-        """Lưu biên bản từng ván vào `game_records/game_XXXX.json` kèm thông tin tác tử Đỏ/Xanh."""
+        """Lưu biên bản từng ván vào `game_records/.../game_XXXX.json` kèm thông tin tác tử Đỏ/Xanh.
+
+        Mặc định giữ cấu trúc phẳng `game_records/game_XXXX.json` (tương thích `07`/`08`).
+        Khi bật `group_by_matchup=True` hoặc truyền `pair_subdir`/`subdir_fn`, tự động phân thư mục theo từng cặp đấu.
+        """
+        base_subdir = subdir.replace("\\", "/").strip("/") or "game_records"
+        fixed_extra = ""
+        if pair_subdir is not None:
+            fixed_parts = [sanitize_path_segment(p) for p in pair_subdir.replace("\\", "/").split("/") if p and p not in (".", "..")]
+            fixed_extra = "/".join(fixed_parts)
+
+        folder_counters: dict[str, int] = defaultdict(lambda: int(start_index) - 1)
         saved_paths: list[Path] = []
-        for idx, m in enumerate(matches, start=1):
-            rel_path = f"{subdir}/game_{idx:04d}.json"
+        for m in matches:
+            if subdir_fn is not None:
+                raw_extra = str(subdir_fn(m)).replace("\\", "/")
+                extra_parts = [sanitize_path_segment(p) for p in raw_extra.split("/") if p and p not in (".", "..")]
+                extra = "/".join(extra_parts)
+            elif fixed_extra:
+                extra = fixed_extra
+            elif group_by_matchup:
+                extra = matchup_subdir_name(m, include_budget_mode=include_budget_mode)
+            else:
+                extra = ""
+
+            folder = f"{base_subdir}/{extra}" if extra else base_subdir
+            folder_counters[folder] += 1
+            idx = folder_counters[folder]
+            rel_path = f"{folder}/game_{idx:04d}.json"
             m.game_record_path = rel_path
             record = {
                 "run_id": run_id or m.run_id or "",
@@ -238,6 +294,15 @@ class ExperimentLogger:
     ) -> Path:
         return self.save_csv(filename, pair_df)
 
+    def merge_csvs(
+        self,
+        filename: str,
+        input_paths: Sequence[Path | str],
+    ) -> Path:
+        """Gộp nhiều file CSV cùng schema theo kiểu streaming (O(1) RAM) vào `filename`."""
+        target = self._check_target(filename)
+        return merge_csv_files(input_paths, target)
+
     def save_match_transcripts(self, matches: Sequence[MatchResult], filename: str = "transcripts.jsonl") -> Path:
         records = []
         for m in matches:
@@ -248,6 +313,50 @@ class ExperimentLogger:
                 }
             )
         return self.save_jsonl(filename, records)
+
+
+def merge_csv_files(
+    input_paths: Sequence[Path | str],
+    output_path: Path | str,
+) -> Path:
+    """Gộp nhiều file CSV cùng header theo kiểu streaming, không nạp cả bảng vào RAM."""
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    expected_header: str | None = None
+    wrote_header = False
+
+    with out.open("w", encoding="utf-8", newline="") as dst:
+        for p in input_paths:
+            src_path = Path(p)
+            if not src_path.exists() or src_path.stat().st_size == 0:
+                continue
+            with src_path.open("r", encoding="utf-8", newline="") as src:
+                header_raw = src.readline()
+                if not header_raw:
+                    continue
+                header_norm = header_raw.rstrip("\r\n")
+                if not header_norm:
+                    continue
+                if expected_header is None:
+                    expected_header = header_norm
+                elif header_norm != expected_header:
+                    raise ValueError(
+                        f"Header CSV không khớp khi gộp `{src_path}`: "
+                        f"kỳ vọng {expected_header!r}, nhận được {header_norm!r}."
+                    )
+                if not wrote_header:
+                    dst.write(header_raw if header_raw.endswith("\n") else f"{header_norm}\n")
+                    wrote_header = True
+                last_chunk_ended_nl = True
+                while True:
+                    chunk = src.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
+                    last_chunk_ended_nl = chunk.endswith("\n")
+                if not last_chunk_ended_nl:
+                    dst.write("\n")
+    return out
 
 
 def init_wandb_run(
@@ -296,27 +405,56 @@ def init_wandb_run(
     return wandb.init(**init_kwargs)
 
 
+def _ensure_wandb_media_tmp() -> None:
+    """Đảm bảo thư mục `MEDIA_TMP` của `wandb` tồn tại nếu Windows/Temp bị dọn trong phiên chạy dài."""
+    try:
+        from wandb.sdk.data_types import _private as _wb_private
+
+        media_tmp = getattr(_wb_private, "MEDIA_TMP", None)
+        tmp_name = getattr(media_tmp, "name", None)
+        if tmp_name:
+            Path(tmp_name).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+
 def log_wandb_metrics(run: Any | None, metrics: dict[str, Any], *, step: int | None = None) -> None:
     """Ghi metric lên `wandb` nếu phiên run đang hoạt động."""
     if run is None:
         return
-    if step is None:
-        run.log(metrics)
-    else:
-        run.log(metrics, step=step)
+    try:
+        if step is None:
+            run.log(metrics)
+        else:
+            run.log(metrics, step=step)
+    except Exception as exc:
+        warnings.warn(f"Lỗi tạm thời khi log metric W&B (bỏ qua để không gián đoạn thực nghiệm): {exc}", RuntimeWarning, stacklevel=2)
 
 
 def log_wandb_table(run: Any | None, key: str, df: pd.DataFrame) -> None:
     """Đẩy bảng DataFrame kết quả lên `wandb.Table` nếu phiên run đang hoạt động."""
     if run is None or wandb is None:
         return
-    run.log({key: wandb.Table(dataframe=df)})
+    _ensure_wandb_media_tmp()
+    try:
+        run.log({key: wandb.Table(dataframe=df)})
+    except FileNotFoundError:
+        _ensure_wandb_media_tmp()
+        try:
+            run.log({key: wandb.Table(dataframe=df)})
+        except Exception as exc:
+            warnings.warn(f"Không thể ghi `wandb.Table` ({key}) do lỗi thư mục tạm: {exc}", RuntimeWarning, stacklevel=2)
+    except Exception as exc:
+        warnings.warn(f"Lỗi tạm thời khi log `wandb.Table` ({key}): {exc}", RuntimeWarning, stacklevel=2)
 
 
 def finish_wandb_run(run: Any | None) -> None:
     """Đóng phiên `wandb` sạch sẽ."""
     if run is not None:
-        run.finish()
+        try:
+            run.finish()
+        except Exception as exc:
+            warnings.warn(f"Lỗi khi đóng phiên `wandb`: {exc}", RuntimeWarning, stacklevel=2)
 
 
 __all__ = [
@@ -325,4 +463,7 @@ __all__ = [
     "init_wandb_run",
     "log_wandb_metrics",
     "log_wandb_table",
+    "matchup_subdir_name",
+    "merge_csv_files",
+    "sanitize_path_segment",
 ]

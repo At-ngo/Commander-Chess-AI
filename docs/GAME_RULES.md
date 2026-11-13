@@ -53,7 +53,7 @@
 | Tên lửa phòng không | `MISSILE` | 1 | 20 |
 | Máy bay / Không quân | `AIRCRAFT` | 2 | 40 |
 | Hải quân / Tàu chiến | `NAVY` | 2 | 80 |
-| Sở chỉ huy | `HEADQUARTERS` | 2 | 100 |
+| Sở chỉ huy | `HEADQUARTERS` | 2 | 10 |
 
 - Quân **Anh hùng** được cộng **10 điểm** vào giá trị của quân đó khi tính điểm bị tiêu diệt.
 - Điểm Hải quân 80 = tên lửa hải đối hải 40 + pháo hạm 30 + cao xạ 10.
@@ -307,7 +307,7 @@ Mỗi bản ghi tối thiểu cần: `turn_index`, `action_index`, `side`, `piec
 | Mã | Quy tắc | Trạng thái | Nội dung đã chốt & Tài liệu tham chiếu |
 |---|---|:---:|---|
 | `BOARD_DATA` | Vị trí 38 quân, ngầm và bờ | **CONFIRMED** | Chuẩn 38 quân, Đỏ đi trước, ngầm tại x=5,7, Tàu 2 Xanh tại `(8, 2)` (DEC-007, `initial_setup.py`) |
-| `HQ_SCORE` | Điểm Sở chỉ huy | **CONFIRMED** | 100 điểm (`RESOLVED_QUESTIONS.md` Q1) |
+| `HQ_SCORE` | Điểm Sở chỉ huy | **CONFIRMED** | 10 điểm (DEC-022; sửa nhầm số 0 từ 100đ, khớp CCHEF) |
 | `HQ_CAPTURE` | Tư lệnh trú trong Sở chỉ huy bị đánh | **CONFIRMED** | Tấn công `CAPTURE_STAND`, Sở chỉ huy bị phá hủy, Tư lệnh sống sót lộ diện (DEC-005, Q9) |
 | `AA_TIMING` | Thời điểm vùng phòng không kích hoạt | **CONFIRMED** | Đe dọa trì hoãn (`AA_DEFERRED_THREAT`), không bắn hạ ngay khi phòng không vừa áp sát |
 | `HERO_MISSILE_MASK` | Vùng phòng không Tên lửa Anh hùng | **CONFIRMED** | 28 điểm gồm 8 điểm dạng kỵ mã (DEC-006, Q6) |
