@@ -22,7 +22,7 @@ from commander_game_engine.board import Board, EdgeType, Position, Terrain
 from commander_game_engine.game_state import GameState, GameStatus, Piece, PieceType, Player
 from commander_game_engine.actions import ActionType, AtomicAction, TurnCommand, TurnCommandType
 from commander_game_engine.move_generator import generate_legal_actions, generate_piece_actions
-from commander_game_engine.engine import apply_action
+from commander_game_engine.engine import PIECE_POINTS, apply_action
 from commander_game_engine import rules
 from agents.random_agent import RandomAgent
 
@@ -737,6 +737,59 @@ class TestConfirmedRulesDec020(unittest.TestCase):
         self.assertIn(decision.action, stack_legal)
         res_step2 = apply_action(res_step1.state, decision.action)
         self.assertTrue(res_step2.accepted)
+
+    def test_headquarters_capture_awards_10_points(self) -> None:
+        """DEC-022: Sở chỉ huy có điểm gốc 10đ (Anh hùng +10đ = 20đ)."""
+        self.assertEqual(PIECE_POINTS[PieceType.HEADQUARTERS], 10)
+
+        # 1) Sở chỉ huy thường (còn 2 SCH -> chưa phong Anh hùng): phá hủy cộng 10đ
+        st_normal = GameState(board=self.board, current_player=Player.BLUE)
+        st_normal.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(0, 6)))
+        st_normal.add_piece(Piece(id="red_hq1", piece_type=PieceType.HEADQUARTERS, owner=Player.RED, position=(1, 5)))
+        st_normal.add_piece(Piece(id="red_hq2", piece_type=PieceType.HEADQUARTERS, owner=Player.RED, position=(1, 7)))
+        st_normal.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        st_normal.add_piece(Piece(id="blue_tank", piece_type=PieceType.TANK, owner=Player.BLUE, position=(3, 5)))
+
+        res_norm = apply_action(
+            st_normal,
+            AtomicAction(
+                action_type=ActionType.CAPTURE,
+                piece_id="blue_tank",
+                start=(3, 5),
+                end=(1, 5),
+                target_piece_id="red_hq1",
+            ),
+        )
+        self.assertTrue(res_norm.accepted)
+        self.assertEqual(res_norm.state.scores[Player.BLUE], 10)
+
+        # 2) Sở chỉ huy Anh hùng (chỉ còn 1 SCH + Tư lệnh): phá hủy cộng 20đ (10 + 10)
+        st_hero = GameState(board=self.board, current_player=Player.BLUE)
+        st_hero.add_piece(Piece(id="red_cmd", piece_type=PieceType.COMMANDER, owner=Player.RED, position=(0, 6)))
+        st_hero.add_piece(
+            Piece(
+                id="red_hq_hero",
+                piece_type=PieceType.HEADQUARTERS,
+                owner=Player.RED,
+                position=(1, 5),
+                is_heroic=True,
+            )
+        )
+        st_hero.add_piece(Piece(id="blue_cmd", piece_type=PieceType.COMMANDER, owner=Player.BLUE, position=(11, 8)))
+        st_hero.add_piece(Piece(id="blue_tank", piece_type=PieceType.TANK, owner=Player.BLUE, position=(3, 5)))
+
+        res_hero = apply_action(
+            st_hero,
+            AtomicAction(
+                action_type=ActionType.CAPTURE,
+                piece_id="blue_tank",
+                start=(3, 5),
+                end=(1, 5),
+                target_piece_id="red_hq_hero",
+            ),
+        )
+        self.assertTrue(res_hero.accepted)
+        self.assertEqual(res_hero.state.scores[Player.BLUE], 20)
 
 
 if __name__ == "__main__":

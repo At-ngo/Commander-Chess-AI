@@ -16,6 +16,7 @@ from commander_game_engine.initial_setup import create_initial_state
 from commander_game_engine.move_generator import generate_legal_actions
 from agents import (
     AgentDecision,
+    MinimaxAgent,
     NoLegalActionsError,
     RandomAgent,
 )
@@ -80,6 +81,44 @@ class TestRandomAgent(unittest.TestCase):
             current_piece = self.state.pieces[pid]
             self.assertEqual(piece.position, current_piece.position)
             self.assertEqual(piece.owner, current_piece.owner)
+
+
+class TestMinimaxAgent(unittest.TestCase):
+    """Kiểm thử tác tử MinimaxAgent (Level 3)."""
+
+    def setUp(self) -> None:
+        self.state = create_initial_state()
+        self.legal_actions = generate_legal_actions(self.state)
+
+    def test_minimax_selects_legal_action(self) -> None:
+        """Đảm bảo Minimax chọn nước đi hợp lệ."""
+        agent = MinimaxAgent(name="TestMM", seed=42, config={"depth": 2, "max_nodes": 500, "candidate_k": 10})
+        decision = agent.select_action(self.state, self.legal_actions)
+
+        self.assertIsInstance(decision, AgentDecision)
+        self.assertIn(decision.action, self.legal_actions)
+        self.assertEqual(decision.metadata["algorithm"], "minimax")
+        self.assertEqual(decision.metadata["depth"], 2)
+        self.assertGreater(decision.metadata["nodes_visited"], 0)
+
+    def test_minimax_reproducibility(self) -> None:
+        """Hai MinimaxAgent cùng seed sinh kết quả giống nhau."""
+        ag1 = MinimaxAgent(name="MM1", seed=2026, config={"depth": 2, "max_nodes": 300, "candidate_k": 5})
+        ag2 = MinimaxAgent(name="MM2", seed=2026, config={"depth": 2, "max_nodes": 300, "candidate_k": 5})
+
+        dec1 = ag1.select_action(self.state, self.legal_actions)
+        dec2 = ag2.select_action(self.state, self.legal_actions)
+        self.assertEqual(dec1.action, dec2.action)
+        self.assertEqual(dec1.metadata["nodes_visited"], dec2.metadata["nodes_visited"])
+
+    def test_minimax_immutability(self) -> None:
+        """Minimax không làm thay đổi trạng thái GameState."""
+        agent = MinimaxAgent(name="MM_Immutability", seed=7, config={"depth": 2, "max_nodes": 200, "candidate_k": 5})
+        state_before = deepcopy(self.state)
+        _ = agent.select_action(self.state, self.legal_actions)
+
+        self.assertEqual(self.state.current_player, state_before.current_player)
+        self.assertEqual(len(self.state.pieces), len(state_before.pieces))
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ from . import rules
 
 PIECE_POINTS: dict[PieceType, int] = {
     PieceType.COMMANDER: 100,
-    PieceType.HEADQUARTERS: 100,
+    PieceType.HEADQUARTERS: 10,
     PieceType.INFANTRY: 10,
     PieceType.MILITIA: 10,
     PieceType.TANK: 20,

@@ -37,3 +37,21 @@ except ImportError:
     pass
 else:
     __all__.extend(["CCHEFEvaluator", "DEFAULT_CCHEF_WEIGHTS", "FEATURE_NAMES", "HeuristicAgent"])
+
+try:
+    from .minimax_agent import DEFAULT_MINIMAX_EVALUATOR_CFG, MinimaxAgent
+    from .tree_exporter import (
+        export_minimax_tree_json,
+        export_minimax_tree_to_dict,
+        plot_minimax_tree_from_json,
+    )
+except ImportError:
+    pass
+else:
+    __all__.extend([
+        "DEFAULT_MINIMAX_EVALUATOR_CFG",
+        "MinimaxAgent",
+        "export_minimax_tree_json",
+        "export_minimax_tree_to_dict",
+        "plot_minimax_tree_from_json",
+    ])
