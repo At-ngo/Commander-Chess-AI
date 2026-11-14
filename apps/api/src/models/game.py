@@ -82,6 +82,9 @@ class GameState(BaseModel):
     compound_moved_piece_ids: List[str] = Field(default_factory=list, description="Các quân đã hành động trong tổ hợp hiện tại")
     last_event: Optional[GameEvent] = Field(None, description="Biến cố gần nhất")
     result: Optional[GameResultDTO] = Field(None, description="Kết quả trận đấu nếu đã kết thúc")
+    red_agent_id: Optional[str] = Field("RULE_BASED_AGENT", description="Mã tác tử phe Đỏ nếu là AI")
+    blue_agent_id: Optional[str] = Field("HEURISTIC_AGENT", description="Mã tác tử phe Xanh nếu là AI")
+    player_side: Optional[Side] = Field(Side.RED, description="Phe của người chơi nếu là HUMAN_VS_AI")
 
 
 class CreateGameRequest(BaseModel):
@@ -116,7 +119,8 @@ class EndTurnRequest(BaseModel):
 
 
 class AiStepRequest(BaseModel):
-    time_budget_ms: int = Field(1000, ge=100, le=30000, description="Thời gian suy nghĩ tối đa của AI (ms)")
+    time_budget_ms: Optional[int] = Field(None, ge=100, le=60000, description="Thời gian suy nghĩ tối đa của AI (ms), None là không giới hạn")
+    agent_id: Optional[str] = Field(None, description="Mã tác tử thực hiện nước đi (nếu muốn ghi đè cấu hình ván)")
 
 
 class ResignRequest(BaseModel):

@@ -17,7 +17,12 @@ from ..models.game import (
     ResignRequest,
     DrawRequest,
 )
-from ..services.engine_adapter import default_engine_adapter, select_smart_ai_action
+from ..services.engine_adapter import (
+    default_engine_adapter,
+    select_smart_ai_action,
+    select_agent_action,
+    select_agent_action_with_telemetry,
+)
 from ..services.game_session_store import session_store
 
 router = APIRouter(prefix="/games", tags=["Games"])
@@ -28,6 +33,13 @@ def create_game(request: CreateGameRequest) -> GameState:
     """Khởi tạo một ván cờ mới (Người vs AI, AI vs AI, hoặc Người vs Người)"""
     game_id = f"game_{uuid.uuid4().hex[:12]}"
     state = default_engine_adapter.create_initial_state(game_id=game_id, mode=request.mode)
+    state = state.model_copy(
+        update={
+            "red_agent_id": request.red_agent_id or "RULE_BASED_AGENT",
+            "blue_agent_id": request.blue_agent_id or "HEURISTIC_AGENT",
+            "player_side": request.player_side or Side.RED,
+        }
+    )
     session_store.save(state)
     return state
 
@@ -176,29 +188,42 @@ def ai_step(game_id: str, request: AiStepRequest) -> ActionResponse:
         )
 
     from ..models.enums import ActionType, Side, TurnPhase
-    # Trong chế độ HUMAN_VS_AI: AI luôn điều khiển phe BLUE
-    ai_side = Side.BLUE if state.mode.value == "HUMAN_VS_AI" else state.side_to_move
-    if state.mode.value == "HUMAN_VS_AI" and state.side_to_move != Side.BLUE:
-        # Tự động đồng bộ lượt về BLUE cho AI nếu backend bị lệch lượt
-        state = state.model_copy(
-            update={
-                "side_to_move": Side.BLUE,
-                "turn_phase": TurnPhase.NORMAL,
-                "can_end_turn": False,
-                "compound_origin": None,
-                "compound_member_ids": [],
-                "compound_moved_piece_ids": [],
-            }
-        )
-        state.legal_actions = default_engine_adapter.get_legal_actions(state)
-        session_store.save(state)
 
-    try:
-        from agents import RandomAgent
-        agent = RandomAgent(name="RandomAgent")
-        chosen_action = select_smart_ai_action(state, ai_side, rng=agent.rng)
-    except Exception:
-        chosen_action = select_smart_ai_action(state, ai_side)
+    # Trong chế độ HUMAN_VS_AI: AI điều khiển phe đối diện người chơi
+    if state.mode.value == "HUMAN_VS_AI":
+        player_side = state.player_side or Side.RED
+        ai_side = Side.BLUE if player_side == Side.RED else Side.RED
+        if state.side_to_move != ai_side and state.turn_phase != TurnPhase.STACK_ACTIVE:
+            state = state.model_copy(
+                update={
+                    "side_to_move": ai_side,
+                    "turn_phase": TurnPhase.NORMAL,
+                    "can_end_turn": False,
+                    "compound_origin": None,
+                    "compound_member_ids": [],
+                    "compound_moved_piece_ids": [],
+                }
+            )
+            state.legal_actions = default_engine_adapter.get_legal_actions(state)
+            session_store.save(state)
+    else:
+        # AI_VS_AI hoặc khán giả
+        ai_side = state.side_to_move
+
+    # Xác định tác tử xử lý nước đi
+    target_agent_id = request.agent_id
+    if not target_agent_id:
+        if ai_side == Side.RED:
+            target_agent_id = state.red_agent_id or "RULE_BASED_AGENT"
+        else:
+            target_agent_id = state.blue_agent_id or "HEURISTIC_AGENT"
+
+    chosen_action, telemetry = select_agent_action_with_telemetry(
+        state,
+        target_agent_id,
+        ai_side,
+        time_budget_ms=request.time_budget_ms,
+    )
 
     if not chosen_action:
         raise HTTPException(
@@ -227,6 +252,10 @@ def ai_step(game_id: str, request: AiStepRequest) -> ActionResponse:
             is_compound_action=(state.turn_phase == TurnPhase.STACK_ACTIVE),
         )
     next_state, event = default_engine_adapter.apply_action(state, action_req)
+    if telemetry:
+        if event.details is None:
+            event.details = {}
+        event.details["telemetry"] = telemetry
     session_store.save(next_state)
     return ActionResponse(
         state_version=next_state.state_version,

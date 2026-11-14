@@ -1580,7 +1580,11 @@ class TestRulesIntegration(unittest.TestCase):
         hq1_s4 = next(p for p in state4.pieces if p.piece_id == "r_hq1")
         hq2_s4 = next(p for p in state4.pieces if p.piece_id == "r_hq2")
         self.assertFalse(hq1_s4.is_alive)
-        self.assertGreaterEqual(state4.scores["BLUE"], 100)
+        self.assertEqual(
+            state4.scores["BLUE"],
+            20,
+            "Ăn Bộ binh (10đ) + phá Sở chỉ huy thường (10đ) phải cộng đúng 20 điểm",
+        )
         self.assertTrue(hq2_s4.is_hero, "Khi chỉ còn 1 Tư lệnh và 1 Sở chỉ huy duy nhất thì HQ2 PHẢI phong Anh hùng")
 
         # HQ2 Anh hùng có thể đi 8 hướng 1-2 đoạn (bao gồm qua sông sâu chéo từ (7,5) sang (8,6))
@@ -1651,6 +1655,18 @@ class TestRulesIntegration(unittest.TestCase):
             ),
         )
         self.assertFalse(next(p for p in next_state.pieces if p.piece_id == "r_hq1").is_alive)
+        self.assertEqual(next_state.scores["BLUE"], 10)
+        mock_next_state, _ = MockEngineAdapter().apply_action(
+            state,
+            ActionRequest(
+                action_type=ActionType.CAPTURE_STAND,
+                piece_id="b_tank",
+                to_pos=Position(x=5, y=1),
+                target_piece_id="r_hq1",
+                state_version=1,
+            ),
+        )
+        self.assertEqual(mock_next_state.scores["BLUE"], 10)
         cmd_after = next(p for p in next_state.pieces if p.piece_id == "r_cmd")
         tank_after = next(p for p in next_state.pieces if p.piece_id == "b_tank")
         hq2_after = next(p for p in next_state.pieces if p.piece_id == "r_hq2")

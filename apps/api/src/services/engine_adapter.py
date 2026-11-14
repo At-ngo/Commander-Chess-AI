@@ -49,7 +49,7 @@ PIECE_NOTATION_SYMBOL: Dict[PieceType, str] = {
 
 PIECE_SCORES: Dict[PieceType, int] = {
     PieceType.COMMANDER: 100,
-    PieceType.HEADQUARTERS: 100,
+    PieceType.HEADQUARTERS: 10,
     PieceType.AIRCRAFT: 40,
     PieceType.NAVY: 80,
     PieceType.MISSILE: 20,
@@ -890,6 +890,177 @@ def select_smart_ai_action(
         if tactical_actions:
             return choose_fn(tactical_actions + shelter_actions)
         return choose_fn(safe_actions)
+
+
+def select_agent_action_with_telemetry(
+    state: GameState,
+    agent_id: Optional[str],
+    ai_side: Side,
+    time_budget_ms: Optional[int] = 1000,
+) -> tuple[Optional[LegalAction], dict[str, Any]]:
+    """Lựa chọn nước đi kèm telemetry chi tiết theo cấu hình tác tử:
+    - RULE_BASED_AGENT (Ruleset A): RuleBasedAgent với ưu tiên bảo vệ Tư lệnh, giải chiếu, ăn quân có lời.
+    - HEURISTIC_AGENT: HeuristicAgent với 7 đặc trưng CCHEF H6 tối ưu và đánh giá nước đi ghép CO.
+    - RANDOM_AGENT: RandomAgent chọn ngẫu nhiên đều.
+    - MINIMAX_AGENT: MinimaxAgent với độ sâu 2 và candidate pruning k=20.
+    """
+    raw_id = (agent_id or "").strip()
+    norm_id = raw_id.upper().replace("-", "_")
+
+    try:
+        from commander_game_engine.game_state import Player as PkgPlayer
+        from commander_game_engine.move_generator import generate_legal_actions as generate_pkg_actions
+        from commander_game_engine.actions import ActionType as PkgActionType, TurnCommand, AtomicAction
+
+        pkg_state = default_engine_adapter._to_pkg_state(state)
+        cur_player = PkgPlayer.RED if ai_side == Side.RED else PkgPlayer.BLUE
+        if pkg_state.current_player != cur_player:
+            pkg_state.current_player = cur_player
+
+        pkg_actions = generate_pkg_actions(pkg_state)
+        if not pkg_actions:
+            return select_smart_ai_action(state, ai_side), {}
+
+        agent: Any = None
+        if "RULE" in norm_id or norm_id in ("RULE_BASE_AGENT", "RULE_BASED_AGENT", "RULESET_A"):
+            from agents import RuleBasedAgent
+            agent = RuleBasedAgent(
+                name="RULE-BASE AGENT",
+                config={
+                    "ruleset_name": "Ruleset_A",
+                    "enable_check_rule": False,
+                    "avoid_losing_captures": True,
+                    "safe_capture_preference": True,
+                    "tie_breaking": "random",
+                },
+            )
+        elif "HEURISTIC" in norm_id or norm_id in ("HEURISTIC_AGENT", "H6"):
+            from agents import HeuristicAgent
+            agent = HeuristicAgent(
+                name="HEURISTIC_AGENT",
+                config={
+                    "variant": "H6",
+                    "enable_compound_lookahead": True,
+                    "enable_co_synergy": True,
+                    "weights": {
+                        "M": 0.30,
+                        "K": 0.30,
+                        "Q": 0.10,
+                        "P": 0.10,
+                        "C": 0.05,
+                        "D": 0.05,
+                        "T": 0.10,
+                    },
+                    "tie_breaking": "random",
+                },
+            )
+        elif "MINIMAX" in norm_id:
+            from agents import MinimaxAgent
+            agent = MinimaxAgent(
+                name="MINIMAX_AGENT",
+                config={
+                    "depth": 2,
+                    "max_nodes": 2000,
+                    "candidate_k": 20,
+                    "time_limit_ms": time_budget_ms if time_budget_ms is not None else 60000,
+                    "evaluator_config": {
+                        "variant": "H6",
+                        "weights": {
+                            "M": 0.30,
+                            "K": 0.30,
+                            "Q": 0.10,
+                            "P": 0.10,
+                            "C": 0.05,
+                            "D": 0.05,
+                            "T": 0.10,
+                        },
+                        "enable_compound_lookahead": True,
+                        "enable_co_synergy": True,
+                    },
+                },
+            )
+        else:
+            from agents import RandomAgent
+            agent = RandomAgent(name="RANDOM AGENT")
+
+        decision = agent.select_action(pkg_state, pkg_actions, move_timeout_ms=time_budget_ms)
+        chosen = decision.action
+
+        telemetry: dict[str, Any] = {}
+        if hasattr(decision, "metadata") and isinstance(decision.metadata, dict):
+            telemetry = dict(decision.metadata)
+        telemetry["agent_id"] = agent_id or agent.name
+
+        if isinstance(chosen, TurnCommand):
+            origin = state.compound_origin or Position(x=0, y=0)
+            return (
+                LegalAction(
+                    action_id=f"end_turn_{ai_side.value}",
+                    action_type=ActionType.END_TURN,
+                    piece_id="COMPOUND",
+                    from_pos=origin,
+                    to_pos=origin,
+                    target_piece_id=None,
+                    carry_cargo=True,
+                    notation="CONFIRM_DEPLOYMENT",
+                    description="Xác nhận kết thúc lượt tổ hợp",
+                ),
+                telemetry,
+            )
+
+        if isinstance(chosen, AtomicAction):
+            to_pos = Position(x=chosen.end[1], y=chosen.end[0])
+            from_pos = Position(x=chosen.start[1], y=chosen.start[0]) if chosen.start else to_pos
+            act_type = ActionType.MOVE
+            if chosen.action_type == PkgActionType.CAPTURE:
+                act_type = ActionType.CAPTURE_REPLACE
+            elif chosen.action_type in (PkgActionType.BOMB, PkgActionType.BOMBARD):
+                act_type = ActionType.CAPTURE_STAND
+            elif chosen.action_type in (PkgActionType.BOARD, PkgActionType.PICKUP):
+                act_type = ActionType.BOARD
+
+            # Search in current state legal actions for exact match to preserve notation and action_id
+            all_legal = default_engine_adapter.get_legal_actions(state)
+            for la in all_legal:
+                if (
+                    la.piece_id == chosen.piece_id
+                    and la.to_pos.x == to_pos.x
+                    and la.to_pos.y == to_pos.y
+                    and la.action_type == act_type
+                    and (chosen.target_piece_id is None or la.target_piece_id == chosen.target_piece_id)
+                ):
+                    return la, telemetry
+
+            # Fallback constructed LegalAction
+            return (
+                LegalAction(
+                    action_id=f"a_{chosen.piece_id}_{to_pos.x}_{to_pos.y}_{act_type.value}",
+                    action_type=act_type,
+                    piece_id=chosen.piece_id,
+                    from_pos=from_pos,
+                    to_pos=to_pos,
+                    target_piece_id=chosen.target_piece_id,
+                    carry_cargo=chosen.carry_cargo,
+                    notation=f"{chosen.piece_id} -> ({to_pos.y},{to_pos.x})",
+                    description="AI action",
+                ),
+                telemetry,
+            )
+    except Exception:
+        pass
+
+    return select_smart_ai_action(state, ai_side), {}
+
+
+def select_agent_action(
+    state: GameState,
+    agent_id: Optional[str],
+    ai_side: Side,
+    time_budget_ms: Optional[int] = 1000,
+) -> Optional[LegalAction]:
+    """Lựa chọn nước đi theo cấu hình tác tử chỉ định (giữ tương thích ngược)."""
+    action, _ = select_agent_action_with_telemetry(state, agent_id, ai_side, time_budget_ms)
+    return action
 
 
 class BaseEngineAdapter(ABC):
