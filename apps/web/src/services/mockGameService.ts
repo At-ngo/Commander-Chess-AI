@@ -18,7 +18,7 @@ import { PIECE_VIETNAMESE_NAMES, PIECE_NOTATION_SYMBOL } from '../utils/assets';
 
 export const PIECE_SCORES: Record<string, number> = {
   COMMANDER: 100,
-  HEADQUARTERS: 100,
+  HEADQUARTERS: 10,
   AIRCRAFT: 40,
   NAVY: 80,
   MISSILE: 20,
@@ -1969,8 +1969,11 @@ export function applyMockAction(
 export function selectSmartAiAction(
   pieces: PieceState[],
   side: 'RED' | 'BLUE',
-  activeCompound: ActiveCompoundState | null = null
+  activeCompound: ActiveCompoundState | null = null,
+  agentId?: string | null
 ): LegalAction | null {
+  const normAgent = (agentId || 'RULE_BASED_AGENT').toUpperCase().replace(/-/g, '_');
+  const enemySide = side === 'RED' ? 'BLUE' : 'RED';
   const allAliveSide = pieces.filter((p) => p.side === side && p.is_alive);
   let candidatePoolPieces = allAliveSide;
 
@@ -2040,36 +2043,137 @@ export function selectSmartAiAction(
 
   if (safeActions.length === 0) return null;
 
-  const isInCheck = isCommanderInCheck(pieces, side);
+  // 1. RULE-BASE AGENT (Ruleset_A): Win Immediate -> Defend Commander -> Capture High Value -> Escape Threat -> Fallback
+  if (normAgent.includes('RULE')) {
+    // 1.1 Win Immediate (Capture Commander or Checkmate)
+    const winMove = safeActions.find((a) => {
+      if (a.target_piece_id) {
+        const target = pieces.find((p) => p.piece_id === a.target_piece_id);
+        if (target && target.type === 'COMMANDER') return true;
+      }
+      const sim = simulateAction(a, pieces);
+      const enemyCmd = sim.find((p) => p.is_alive && p.side === enemySide && p.type === 'COMMANDER');
+      return !enemyCmd;
+    });
+    if (winMove) return winMove;
 
-  if (isInCheck) {
-    const blockingOrCapturing = safeActions.filter((a) => !cmd || a.piece_id !== cmd.piece_id);
-    const shelterActions = safeActions.filter(
-      (a) => cmd && a.piece_id === cmd.piece_id && a.action_type === 'BOARD'
-    );
-    const cmdEscapeActions = safeActions.filter(
-      (a) => cmd && a.piece_id === cmd.piece_id && a.action_type !== 'BOARD'
-    );
-
-    if (blockingOrCapturing.length > 0) {
-      const preferred = [...blockingOrCapturing, ...shelterActions, ...cmdEscapeActions];
-      return preferred[Math.floor(Math.random() * preferred.length)];
-    } else if (shelterActions.length > 0) {
-      return shelterActions[Math.floor(Math.random() * shelterActions.length)];
-    } else if (cmdEscapeActions.length > 0) {
-      return cmdEscapeActions[Math.floor(Math.random() * cmdEscapeActions.length)];
+    // 1.2 Defend Commander if in check
+    const isInCheck = isCommanderInCheck(pieces, side);
+    if (isInCheck) {
+      const resolvingActions = safeActions.filter((a) => {
+        const sim = simulateAction(a, pieces);
+        return !isCommanderInCheck(sim, side);
+      });
+      if (resolvingActions.length > 0) {
+        // Prefer capturing the checking attacker or sheltering
+        const cap = resolvingActions.find((a) => Boolean(a.target_piece_id));
+        if (cap) return cap;
+        return resolvingActions[Math.floor(Math.random() * resolvingActions.length)];
+      }
     }
-    return safeActions[Math.floor(Math.random() * safeActions.length)];
-  } else {
-    const tacticalActions = safeActions.filter((a) => !cmd || a.piece_id !== cmd.piece_id);
-    const shelterActions = safeActions.filter(
-      (a) => cmd && a.piece_id === cmd.piece_id && a.action_type === 'BOARD'
-    );
 
-    if (tacticalActions.length > 0) {
-      const preferred = [...tacticalActions, ...shelterActions];
-      return preferred[Math.floor(Math.random() * preferred.length)];
+    // 1.3 Capture High Value (Ruleset A - safe profitable captures)
+    const captureActions = safeActions.filter((a) => Boolean(a.target_piece_id));
+    if (captureActions.length > 0) {
+      let bestCap: LegalAction | null = null;
+      let maxGain = -999;
+      for (const cap of captureActions) {
+        const target = pieces.find((p) => p.piece_id === cap.target_piece_id);
+        const gain = target ? (PIECE_SCORES[target.type] || 10) + (target.is_hero ? 10 : 0) : 0;
+        const sim = simulateAction(cap, pieces);
+        const actorAfter = sim.find((p) => p.piece_id === cap.piece_id);
+        const exposed = actorAfter && isSquareAttackedByEnemy(sim, actorAfter.position.x, actorAfter.position.y, enemySide);
+        const actorVal = actorAfter ? (PIECE_SCORES[actorAfter.type] || 10) : 10;
+        const netGain = gain - (exposed ? actorVal : 0);
+        if (netGain >= 0 && netGain > maxGain) {
+          maxGain = netGain;
+          bestCap = cap;
+        }
+      }
+      if (bestCap) return bestCap;
+    }
+
+    // 1.4 Escape High Value threatened pieces (>= 20 points)
+    const threatenedPieces = pieces.filter(
+      (p) =>
+        p.is_alive &&
+        p.side === side &&
+        p.type !== 'COMMANDER' &&
+        (PIECE_SCORES[p.type] >= 20 || p.is_hero) &&
+        isSquareAttackedByEnemy(pieces, p.position.x, p.position.y, enemySide)
+    );
+    if (threatenedPieces.length > 0) {
+      for (const tp of threatenedPieces) {
+        const escapeAct = safeActions.find((a) => {
+          if (a.piece_id !== tp.piece_id) return false;
+          const sim = simulateAction(a, pieces);
+          const after = sim.find((p) => p.piece_id === tp.piece_id);
+          return after && !isSquareAttackedByEnemy(sim, after.position.x, after.position.y, enemySide);
+        });
+        if (escapeAct) return escapeAct;
+      }
+    }
+
+    // 1.5 Fallback: advance forward towards river/center
+    const forwardActions = safeActions.filter((a) => {
+      const dy = side === 'RED' ? a.to_pos.y - a.from_pos.y : a.from_pos.y - a.to_pos.y;
+      return dy > 0;
+    });
+    if (forwardActions.length > 0) {
+      return forwardActions[Math.floor(Math.random() * forwardActions.length)];
     }
     return safeActions[Math.floor(Math.random() * safeActions.length)];
   }
+
+  // 2. HEURISTIC AGENT (CCHEF H6 Evaluator): Multi-feature tactical scoring
+  if (normAgent.includes('HEURISTIC')) {
+    let bestAction = safeActions[0];
+    let maxEval = -Infinity;
+
+    for (const act of safeActions) {
+      const sim = simulateAction(act, pieces);
+      let evalScore = 0;
+
+      // Feature M (Material delta - weight 0.30)
+      let matDelta = 0;
+      for (const p of sim) {
+        if (!p.is_alive) continue;
+        const v = (PIECE_SCORES[p.type] || 10) + (p.is_hero ? 10 : 0);
+        matDelta += p.side === side ? v : -v;
+      }
+      evalScore += (matDelta / 450.0) * 0.30;
+
+      // Feature K (King Safety - weight 0.30)
+      const ownCmd = sim.find((p) => p.is_alive && p.side === side && p.type === 'COMMANDER');
+      const enemyCmd = sim.find((p) => p.is_alive && p.side === enemySide && p.type === 'COMMANDER');
+      if (!enemyCmd) evalScore += 5.0; // Win!
+      if (ownCmd && isCommanderInCheck(sim, side)) evalScore -= 1.0;
+      if (enemyCmd && isCommanderInCheck(sim, enemySide)) evalScore += 0.3;
+
+      // Feature P (Position & Fords - weight 0.10)
+      const isFord = (act.to_pos.x === 5 || act.to_pos.x === 7) && (act.to_pos.y === 5 || act.to_pos.y === 6);
+      if (isFord) evalScore += 0.15;
+      const isCenter = act.to_pos.x >= 3 && act.to_pos.x <= 7 && act.to_pos.y >= 4 && act.to_pos.y <= 7;
+      if (isCenter) evalScore += 0.08;
+
+      // Feature D (Deployment - weight 0.05)
+      const dy = side === 'RED' ? act.to_pos.y - act.from_pos.y : act.from_pos.y - act.to_pos.y;
+      if (dy > 0) evalScore += 0.05 * dy;
+
+      // Feature T (Tactical Risk - weight 0.10)
+      const actorAfter = sim.find((p) => p.piece_id === act.piece_id);
+      if (actorAfter && isSquareAttackedByEnemy(sim, actorAfter.position.x, actorAfter.position.y, enemySide)) {
+        evalScore -= (PIECE_SCORES[actorAfter.type] / 100.0) * 0.10;
+      }
+
+      if (evalScore > maxEval) {
+        maxEval = evalScore;
+        bestAction = act;
+      }
+    }
+    return bestAction;
+  }
+
+  // 3. RANDOM AGENT (Uniform selection)
+  return safeActions[Math.floor(Math.random() * safeActions.length)];
 }

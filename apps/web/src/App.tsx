@@ -7,6 +7,7 @@ import { PieceDetail } from './components/PieceDetail/PieceDetail';
 import { MoveHistory } from './components/MoveHistory/MoveHistory';
 import { CapturedPieces } from './components/CapturedPieces/CapturedPieces';
 import { GameAnalysisRecord } from './components/GameAnalysisRecord/GameAnalysisRecord';
+import { Statistics } from './components/Statistics/Statistics';
 import { GameOverModal } from './components/GameOverModal/GameOverModal';
 import { ConfirmModal } from './components/ConfirmModal/ConfirmModal';
 import {
@@ -34,6 +35,7 @@ import {
   evaluateTurnHandoffOutcome,
 } from './services/mockGameService';
 import { apiClient, ApiError } from './services/apiClient';
+import { formatFullMatchNotation, formatMovesAsAiJsonRecord } from './utils/recordAnalyzer';
 import { Language, translations } from './i18n';
 import styles from './App.module.css';
 
@@ -174,6 +176,16 @@ export const App: React.FC = () => {
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [boardFlipped, setBoardFlipped] = useState<boolean>(false);
 
+  // Agent Selection and AI vs AI Spectator states
+  const [opponentAgentId, setOpponentAgentId] = useState<string>('RULE_BASED_AGENT');
+  const [redAgentId, setRedAgentId] = useState<string>('RULE_BASED_AGENT');
+  const [blueAgentId, setBlueAgentId] = useState<string>('HEURISTIC_AGENT');
+  const [isAiVsAiPlaying, setIsAiVsAiPlaying] = useState<boolean>(false);
+  const [aiVsAiSpeedMs, setAiVsAiSpeedMs] = useState<number>(1000);
+  const [aiVsAiTimeBudgetMs, setAiVsAiTimeBudgetMs] = useState<number | null>(1000);
+  const [copyNotification, setCopyNotification] = useState<string | null>(null);
+  const [analysisPreloadText, setAnalysisPreloadText] = useState<string>('');
+
   const stateVersionRef = useRef<number>(1);
   const piecesRef = useRef<PieceState[]>(pieces);
   piecesRef.current = pieces;
@@ -249,6 +261,21 @@ export const App: React.FC = () => {
 
   const t = translations[lang];
 
+  const getAgentDisplayName = (agentId: string) => {
+    switch (agentId) {
+      case 'RULE_BASED_AGENT':
+        return t.game.agentRuleBased;
+      case 'HEURISTIC_AGENT':
+        return t.game.agentHeuristic;
+      case 'RANDOM_AGENT':
+        return t.game.agentRandom;
+      case 'MINIMAX_AGENT':
+        return t.game.agentMinimax;
+      default:
+        return agentId;
+    }
+  };
+
   useEffect(() => {
     localStorage.setItem('commander_chess_lang', lang);
   }, [lang]);
@@ -264,7 +291,7 @@ export const App: React.FC = () => {
           const session = await apiClient.createGame({
             mode: 'HUMAN_VS_AI',
             player_side: 'RED',
-            blue_agent_id: 'RandomAgent',
+            blue_agent_id: 'RULE_BASED_AGENT',
           });
           if (isMounted) {
             setGameSessionId(session.game_id);
@@ -342,7 +369,7 @@ export const App: React.FC = () => {
 
   // Calculate legal actions for currently selected piece of active side
   const legalActions = useMemo(() => {
-    if (status === 'GAME_OVER' || isAiThinking || isReviewingPast) return [];
+    if (status === 'GAME_OVER' || isAiThinking || isReviewingPast || gameMode === 'AI_VS_AI') return [];
     if (!selectedPiece || selectedPiece.side !== sideToMove) return [];
     // Quy tắc phong Anh hùng trễ: nếu phe chỉ còn 1 Sở chỉ huy + Tư lệnh đang núp bên trong, bắt buộc Tư lệnh thoát ra trước
     const trapCmdId = delayedSolitaryHqCommanderId(pieces, sideToMove);
@@ -358,6 +385,7 @@ export const App: React.FC = () => {
     status,
     isAiThinking,
     isReviewingPast,
+    gameMode,
     selectedPiece,
     sideToMove,
     pieces,
@@ -372,6 +400,11 @@ export const App: React.FC = () => {
       return;
     }
     if (status === 'GAME_OVER' || isAiThinking) return;
+    // Trong chế độ AI đối đầu AI (Khán đài), chỉ chọn quân để quan sát chi tiết
+    if (gameMode === 'AI_VS_AI') {
+      setSelectedPieceId((prev) => (prev === piece.piece_id ? null : piece.piece_id));
+      return;
+    }
     // Trong chế độ đấu với AI, người chơi không thể chọn quân của AI (Xanh)
     if (gameMode === 'HUMAN_VS_AI' && piece.side === 'BLUE') {
       return;
@@ -584,11 +617,18 @@ export const App: React.FC = () => {
     if (status === 'GAME_OVER' || isAiThinking || isReviewingPast) return;
     setIsAiThinking(true);
     const actingSide = sideToMove;
+    const currentAgentId =
+      gameMode === 'AI_VS_AI'
+        ? actingSide === 'RED'
+          ? redAgentId
+          : blueAgentId
+        : opponentAgentId;
+    const effectiveTimeBudgetMs = gameMode === 'AI_VS_AI' ? aiVsAiTimeBudgetMs : null;
 
     try {
       if (backendOnline && gameSessionId) {
         const prevPieces = piecesRef.current;
-        const aiRes = await apiClient.aiStep(gameSessionId);
+        const aiRes = await apiClient.aiStep(gameSessionId, effectiveTimeBudgetMs, currentAgentId);
         syncStateVersion(aiRes.state_version);
 
         // PHÒNG THỦ TUYỆT ĐỐI: Kiểm tra quân thực hiện nước đi của AI
@@ -649,9 +689,12 @@ export const App: React.FC = () => {
             ? 'CAPTURE_REPLACE'
             : 'MOVE');
 
+        const rawTelemetry = (aiRes.event.details?.telemetry as Record<string, any>) || null;
         const newRecord: MoveRecord = {
           move_number: movesRef.current.length + 1,
           side: actingSide,
+          agent_id: currentAgentId,
+          telemetry: rawTelemetry,
           action: {
             action_id: `ai_${Date.now()}`,
             action_type: resolvedActionType,
@@ -664,7 +707,7 @@ export const App: React.FC = () => {
                 ? aiRes.event.details.carry_cargo
                 : resolvedActionType !== 'CAPTURE_STAND',
             notation: aiRes.event.notation,
-            description: 'Nước đi của Random Agent',
+            description: `Nước đi của ${getAgentDisplayName(currentAgentId)}`,
           },
           notation: aiRes.event.notation,
           captured_piece_type:
@@ -713,7 +756,12 @@ export const App: React.FC = () => {
         setSideToMove(aiRes.game_state.side_to_move);
       } else {
         // Fallback ngoại tuyến (Mock engine) - Tác tử AI thông minh bao gồm cả tổ hợp cõng quân & END_TURN
-        const smartAction = selectSmartAiAction(piecesRef.current, actingSide, activeCompound);
+        const smartAction = selectSmartAiAction(
+          piecesRef.current,
+          actingSide,
+          activeCompound,
+          currentAgentId
+        );
         if (smartAction) {
           if (smartAction.action_type === 'END_TURN') {
             await handleConfirmCompound();
@@ -751,7 +799,8 @@ export const App: React.FC = () => {
 
   // Tự động kích hoạt nước đi của AI khi đến lượt phe Xanh trong chế độ HUMAN_VS_AI
   useEffect(() => {
-    if (status !== 'IN_PROGRESS' || activeTab !== 'play' || isReviewingPast) return;
+    const isBoardView = activeTab === 'play' || activeTab === 'aiVsAi';
+    if (status !== 'IN_PROGRESS' || !isBoardView || isReviewingPast) return;
     if (gameMode === 'HUMAN_VS_AI' && sideToMove === 'BLUE' && !isAiThinking) {
       const timer = setTimeout(() => {
         triggerAiStep();
@@ -759,6 +808,33 @@ export const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [sideToMove, gameMode, status, activeTab, isAiThinking, activeCompound, isReviewingPast]);
+
+  // Tự động kích hoạt vòng lặp lượt cờ trong chế độ AI_VS_AI (Khán đài)
+  useEffect(() => {
+    const isBoardView = activeTab === 'play' || activeTab === 'aiVsAi';
+    if (gameMode !== 'AI_VS_AI') return;
+    if (status !== 'IN_PROGRESS' || !isBoardView || isReviewingPast) {
+      if (isAiVsAiPlaying) setIsAiVsAiPlaying(false);
+      return;
+    }
+    if (!isAiVsAiPlaying || isAiThinking) return;
+
+    const timer = setTimeout(() => {
+      triggerAiStep();
+    }, aiVsAiSpeedMs);
+    return () => clearTimeout(timer);
+  }, [
+    sideToMove,
+    gameMode,
+    status,
+    activeTab,
+    isAiVsAiPlaying,
+    isAiThinking,
+    activeCompound,
+    isReviewingPast,
+    aiVsAiSpeedMs,
+    moves.length,
+  ]);
 
   const handleExecuteAction = async (action: LegalAction, isAiAction: boolean = false) => {
     if (status === 'GAME_OVER' || isReviewingPast || (!isAiAction && isAiThinking)) return;
@@ -1081,6 +1157,7 @@ export const App: React.FC = () => {
   const handleResetBoard = async (newMode?: GameMode) => {
     const modeToUse = newMode || gameMode;
     if (newMode) setGameMode(newMode);
+    setIsAiVsAiPlaying(false);
     const freshInitial = getInitialPieces();
     const initSnaps = [buildInitialSnapshot(freshInitial)];
     matchSnapshotsRef.current = initSnaps;
@@ -1107,7 +1184,13 @@ export const App: React.FC = () => {
         const session = await apiClient.createGame({
           mode: modeToUse,
           player_side: 'RED',
-          blue_agent_id: modeToUse === 'HUMAN_VS_AI' ? 'RandomAgent' : null,
+          red_agent_id: modeToUse === 'AI_VS_AI' ? redAgentId : null,
+          blue_agent_id:
+            modeToUse === 'AI_VS_AI'
+              ? blueAgentId
+              : modeToUse === 'HUMAN_VS_AI'
+              ? opponentAgentId
+              : null,
         });
         setGameSessionId(session.game_id);
         syncStateVersion(session.state_version);
@@ -1186,7 +1269,68 @@ export const App: React.FC = () => {
     setIsGameOverModalOpen(true);
   };
 
+  const handleCopyMatchLog = () => {
+    if (moves.length === 0) return;
+    const resolvedWinner: Side | 'DRAW' =
+      gameResult?.winner === 'RED' || gameResult?.winner === 'BLUE' ? gameResult.winner : 'DRAW';
+    const isAiMatch = gameMode === 'AI_VS_AI' || moves.some((m) => m.telemetry != null);
+    const formatted = isAiMatch
+      ? formatMovesAsAiJsonRecord(moves, {
+          gameId: gameSessionId || undefined,
+          redAgent: getAgentDisplayName(redAgentId),
+          blueAgent: getAgentDisplayName(blueAgentId),
+          redConfigId: redAgentId,
+          blueConfigId: blueAgentId,
+          winner: resolvedWinner,
+          reason: gameResult?.reason || (status === 'GAME_OVER' ? 'GAME_OVER' : 'IN_PROGRESS'),
+          finalScores: scores,
+          durationSec: matchSeconds,
+        })
+      : formatFullMatchNotation(moves, {
+          winner: resolvedWinner,
+          reason: gameResult?.reason || (status === 'GAME_OVER' ? 'GAME_OVER' : 'IN_PROGRESS'),
+          finalScores: scores,
+          durationFormatted: formattedTime,
+        });
+    navigator.clipboard.writeText(formatted);
+    setCopyNotification(t.game.copySuccessToast);
+    setTimeout(() => setCopyNotification(null), 3000);
+  };
+
+  const handleAnalyzeMatch = () => {
+    if (moves.length === 0) return;
+    const resolvedWinner: Side | 'DRAW' =
+      gameResult?.winner === 'RED' || gameResult?.winner === 'BLUE' ? gameResult.winner : 'DRAW';
+    const isAiMatch = gameMode === 'AI_VS_AI' || moves.some((m) => m.telemetry != null);
+    const formatted = isAiMatch
+      ? formatMovesAsAiJsonRecord(moves, {
+          gameId: gameSessionId || undefined,
+          redAgent: getAgentDisplayName(redAgentId),
+          blueAgent: getAgentDisplayName(blueAgentId),
+          redConfigId: redAgentId,
+          blueConfigId: blueAgentId,
+          winner: resolvedWinner,
+          reason: gameResult?.reason || (status === 'GAME_OVER' ? 'GAME_OVER' : 'IN_PROGRESS'),
+          finalScores: scores,
+          durationSec: matchSeconds,
+        })
+      : formatFullMatchNotation(moves, {
+          winner: resolvedWinner,
+          reason: gameResult?.reason || (status === 'GAME_OVER' ? 'GAME_OVER' : 'IN_PROGRESS'),
+          finalScores: scores,
+          durationFormatted: formattedTime,
+        });
+    navigator.clipboard.writeText(formatted);
+    setAnalysisPreloadText(formatted);
+    setActiveTab('replays');
+  };
+
   const handleNavigate = (tab: string, mode?: GameMode) => {
+    if (tab === 'aiVsAi') {
+      handleResetBoard('AI_VS_AI');
+      setActiveTab('aiVsAi');
+      return;
+    }
     if (mode) {
       handleResetBoard(mode);
     }
@@ -1199,7 +1343,14 @@ export const App: React.FC = () => {
         currentLang={lang}
         onLanguageChange={setLang}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => {
+          if (tab === 'aiVsAi') {
+            if (gameMode !== 'AI_VS_AI') {
+              handleResetBoard('AI_VS_AI');
+            }
+          }
+          setActiveTab(tab);
+        }}
       />
 
       <main className={styles.main}>
@@ -1209,7 +1360,7 @@ export const App: React.FC = () => {
         )}
 
         {/* TAB 2: PLAY TACTICAL BOARD (CR-001, CR-004) */}
-        {activeTab === 'play' && (
+        {(activeTab === 'play' || activeTab === 'aiVsAi') && (
           <div className={styles.gameLayout}>
             {/* Left Operational Info Panel (Optimized to free vertical space for board) */}
             <aside className={styles.leftPanel}>
@@ -1259,7 +1410,119 @@ export const App: React.FC = () => {
                   >
                     ⚔️ {t.game.modeHumanVsHuman}
                   </button>
+                  <button
+                    type="button"
+                    className={`${styles.modePill} ${gameMode === 'AI_VS_AI' ? styles.modePillActive : ''}`}
+                    onClick={() => {
+                      if (gameMode !== 'AI_VS_AI') {
+                        setActiveTab('aiVsAi');
+                        handleResetBoard('AI_VS_AI');
+                      }
+                    }}
+                    disabled={isAiThinking}
+                    title={t.game.modeAiVsAi}
+                  >
+                    ◈ {t.game.modeAiVsAi}
+                  </button>
                 </div>
+
+                {/* Human vs AI: Select Opponent Agent */}
+                {gameMode === 'HUMAN_VS_AI' && (
+                  <div className={styles.agentSelectSection}>
+                    <label className={styles.agentSelectLabel} htmlFor="opponent-agent-select">
+                      {t.game.selectOpponent}
+                    </label>
+                    <select
+                      id="opponent-agent-select"
+                      className={styles.agentSelectInput}
+                      value={opponentAgentId}
+                      onChange={(e) => {
+                        const newAgent = e.target.value;
+                        setOpponentAgentId(newAgent);
+                        if (moves.length === 0) {
+                          handleResetBoard('HUMAN_VS_AI');
+                        }
+                      }}
+                      disabled={isAiThinking}
+                    >
+                      <option value="RULE_BASED_AGENT">{t.game.agentRuleBased}</option>
+                      <option value="HEURISTIC_AGENT">{t.game.agentHeuristic}</option>
+                      <option value="RANDOM_AGENT">{t.game.agentRandom}</option>
+                      <option value="MINIMAX_AGENT">{t.game.agentMinimax}</option>
+                    </select>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <span>⏱️</span>
+                      <span>{t.game.humanNoTimeLimit}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI vs AI: Select Red Agent and Blue Agent */}
+                {gameMode === 'AI_VS_AI' && (
+                  <div className={styles.agentSelectSection}>
+                    <div className={styles.agentPairRow}>
+                      <div className={styles.agentCol}>
+                        <label className={styles.agentSelectLabel} style={{ color: 'var(--crimson-primary)' }}>
+                          {t.game.redAgentLabel}
+                        </label>
+                        <select
+                          className={styles.agentSelectInput}
+                          value={redAgentId}
+                          onChange={(e) => {
+                            setRedAgentId(e.target.value);
+                            if (moves.length === 0) handleResetBoard('AI_VS_AI');
+                          }}
+                          disabled={isAiThinking || isAiVsAiPlaying}
+                        >
+                          <option value="RULE_BASED_AGENT">{t.game.agentRuleBased}</option>
+                          <option value="HEURISTIC_AGENT">{t.game.agentHeuristic}</option>
+                          <option value="RANDOM_AGENT">{t.game.agentRandom}</option>
+                          <option value="MINIMAX_AGENT">{t.game.agentMinimax}</option>
+                        </select>
+                      </div>
+                      <div className={styles.agentCol}>
+                        <label className={styles.agentSelectLabel} style={{ color: 'var(--team-blue)' }}>
+                          {t.game.blueAgentLabel}
+                        </label>
+                        <select
+                          className={styles.agentSelectInput}
+                          value={blueAgentId}
+                          onChange={(e) => {
+                            setBlueAgentId(e.target.value);
+                            if (moves.length === 0) handleResetBoard('AI_VS_AI');
+                          }}
+                          disabled={isAiThinking || isAiVsAiPlaying}
+                        >
+                          <option value="HEURISTIC_AGENT">{t.game.agentHeuristic}</option>
+                          <option value="RULE_BASED_AGENT">{t.game.agentRuleBased}</option>
+                          <option value="RANDOM_AGENT">{t.game.agentRandom}</option>
+                          <option value="MINIMAX_AGENT">{t.game.agentMinimax}</option>
+                        </select>
+                      </div>
+                      <div className={styles.agentCol} style={{ marginTop: '0.2rem' }}>
+                        <label className={styles.agentSelectLabel}>
+                          ⏱️ {t.game.aiTimeLimitLabel}
+                        </label>
+                        <select
+                          className={styles.agentSelectInput}
+                          value={aiVsAiTimeBudgetMs ?? 'unlimited'}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setAiVsAiTimeBudgetMs(val === 'unlimited' ? null : parseInt(val, 10));
+                          }}
+                          disabled={isAiThinking || isAiVsAiPlaying}
+                        >
+                          <option value="500">0.5s (500 ms)</option>
+                          <option value="1000">1.0s (1000 ms - Mặc định)</option>
+                          <option value="2000">2.0s (2000 ms)</option>
+                          <option value="3000">3.0s (3000 ms)</option>
+                          <option value="5000">5.0s (5000 ms)</option>
+                          <option value="unlimited">{t.game.aiTimeLimitUnlimited}</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className={styles.modePanelSpecs}>
                   <div className={styles.modePanelRow}>
@@ -1321,7 +1584,7 @@ export const App: React.FC = () => {
                 lastMove={displayedLastMove}
                 activeCompound={displayedActiveCompound}
                 flipped={boardFlipped}
-                readOnly={isReviewingPast}
+                readOnly={isReviewingPast || gameMode === 'AI_VS_AI'}
                 lang={lang}
               />
 
@@ -1334,7 +1597,7 @@ export const App: React.FC = () => {
                 onSelectPiece={handleSelectPiece}
                 onConfirmCompound={handleConfirmCompound}
                 lang={lang}
-                readOnly={isReviewingPast || status === 'GAME_OVER' || isAiThinking}
+                readOnly={isReviewingPast || status === 'GAME_OVER' || isAiThinking || gameMode === 'AI_VS_AI'}
               />
 
               <div className={`tactical-panel ${styles.reviewControlBar}`}>
@@ -1458,9 +1721,13 @@ export const App: React.FC = () => {
                       }
                     >
                       {displayedSideToMove === 'RED'
-                        ? t.game.redSide
+                        ? gameMode === 'AI_VS_AI'
+                          ? `${t.game.redSide} (${getAgentDisplayName(redAgentId)})`
+                          : t.game.redSide
+                        : gameMode === 'AI_VS_AI'
+                        ? `${t.game.blueSide} (${getAgentDisplayName(blueAgentId)})`
                         : gameMode === 'HUMAN_VS_AI'
-                        ? t.game.aiBotName
+                        ? `${t.game.aiBotName} (${getAgentDisplayName(opponentAgentId)})`
                         : t.game.blueSide}
                     </strong>
                   </span>
@@ -1470,7 +1737,57 @@ export const App: React.FC = () => {
                 {isAiThinking && (
                   <div className={styles.aiThinkingBanner}>
                     <span className={styles.aiThinkingSpinner}>⚙️</span>
-                    <span>{t.game.aiThinking}</span>
+                    <span>
+                      {gameMode === 'AI_VS_AI'
+                        ? `${getAgentDisplayName(sideToMove === 'RED' ? redAgentId : blueAgentId)} đang tính toán...`
+                        : `${getAgentDisplayName(opponentAgentId)} đang suy nghĩ...`}
+                    </span>
+                  </div>
+                )}
+
+                {/* Spectator Matchup Card in AI vs AI */}
+                {gameMode === 'AI_VS_AI' && (
+                  <div className={styles.spectatorMatchupCard}>
+                    <div className={styles.matchupRow}>
+                      <span className={styles.matchupAgentRed} title={getAgentDisplayName(redAgentId)}>
+                        🔴 {getAgentDisplayName(redAgentId)}
+                      </span>
+                      {displayedSideToMove === 'RED' && status === 'IN_PROGRESS' && (
+                        <span className={styles.matchupActiveBadge}>Lượt đi</span>
+                      )}
+                    </div>
+                    <div className={styles.matchupRow}>
+                      <span className={styles.matchupAgentBlue} title={getAgentDisplayName(blueAgentId)}>
+                        🔵 {getAgentDisplayName(blueAgentId)}
+                      </span>
+                      {displayedSideToMove === 'BLUE' && status === 'IN_PROGRESS' && (
+                        <span className={styles.matchupActiveBadge}>Lượt đi</span>
+                      )}
+                    </div>
+                    <div className={styles.speedSelectorGroup}>
+                      <span>{t.game.speedLabel}</span>
+                      <button
+                        type="button"
+                        className={`${styles.speedBtn} ${aiVsAiSpeedMs === 500 ? styles.speedBtnActive : ''}`}
+                        onClick={() => setAiVsAiSpeedMs(500)}
+                      >
+                        0.5s
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.speedBtn} ${aiVsAiSpeedMs === 1000 ? styles.speedBtnActive : ''}`}
+                        onClick={() => setAiVsAiSpeedMs(1000)}
+                      >
+                        1.0s
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.speedBtn} ${aiVsAiSpeedMs === 2000 ? styles.speedBtnActive : ''}`}
+                        onClick={() => setAiVsAiSpeedMs(2000)}
+                      >
+                        2.0s
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -1491,62 +1808,150 @@ export const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Primary Controls */}
-                <div className={styles.controls}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ flex: 1 }}
-                    onClick={handleRequestNewGame}
-                    disabled={isAiThinking}
-                  >
-                    🔄 {t.game.newGame}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={triggerAiStep}
-                    disabled={status === 'GAME_OVER' || isAiThinking || isReviewingPast}
-                    title={t.game.aiMoveBtn}
-                  >
-                    {t.game.aiMoveBtn}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setActiveCompound(null);
-                      setSelectedPieceId(null);
-                      setSideToMove(sideToMove === 'RED' ? 'BLUE' : 'RED');
-                    }}
-                    disabled={status === 'GAME_OVER' || isAiThinking || isReviewingPast}
-                    title="Chuyển lượt thử nghiệm"
-                  >
-                    {t.game.swapTurn}
-                  </button>
-                </div>
+                {/* Controls */}
+                {gameMode === 'AI_VS_AI' ? (
+                  <div className={styles.controls} style={{ flexDirection: 'column', gap: '0.4rem' }}>
+                    <div style={{ display: 'flex', gap: '0.4rem', width: '100%' }}>
+                      <button
+                        type="button"
+                        className={`btn ${isAiVsAiPlaying ? 'btn-secondary' : 'btn-primary'}`}
+                        style={{ flex: 1.2 }}
+                        onClick={() => setIsAiVsAiPlaying((prev) => !prev)}
+                        disabled={status === 'GAME_OVER'}
+                      >
+                        {isAiVsAiPlaying ? t.game.btnPauseMatch : t.game.btnStartMatch}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ flex: 1 }}
+                        onClick={triggerAiStep}
+                        disabled={status === 'GAME_OVER' || isAiThinking || isAiVsAiPlaying || isReviewingPast}
+                        title={t.game.btnStepMatch}
+                      >
+                        {t.game.btnStepMatch}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem', width: '100%' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ flex: 1 }}
+                        onClick={handleRequestNewGame}
+                        disabled={isAiThinking}
+                      >
+                        🔄 {t.game.newGame}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline-gold"
+                        style={{ flex: 1 }}
+                        onClick={handleCopyMatchLog}
+                        disabled={moves.length === 0}
+                        title={t.game.btnCopyLog}
+                      >
+                        {t.game.btnCopyLog}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ width: '100%', marginTop: '0.15rem' }}
+                      onClick={handleAnalyzeMatch}
+                      disabled={moves.length === 0}
+                      title={t.game.btnAnalyzeMatch}
+                    >
+                      {t.game.btnAnalyzeMatch}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className={styles.controls}>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ flex: 1 }}
+                        onClick={handleRequestNewGame}
+                        disabled={isAiThinking}
+                      >
+                        🔄 {t.game.newGame}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={triggerAiStep}
+                        disabled={status === 'GAME_OVER' || isAiThinking || isReviewingPast}
+                        title={t.game.aiMoveBtn}
+                      >
+                        {t.game.aiMoveBtn}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          setActiveCompound(null);
+                          setSelectedPieceId(null);
+                          setSideToMove(sideToMove === 'RED' ? 'BLUE' : 'RED');
+                        }}
+                        disabled={status === 'GAME_OVER' || isAiThinking || isReviewingPast}
+                        title="Chuyển lượt thử nghiệm"
+                      >
+                        {t.game.swapTurn}
+                      </button>
+                    </div>
 
-                {/* Tactical Action Controls (Resign & Draw) */}
-                <div className={styles.controlsSecondary}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleRequestResign}
-                    disabled={status === 'GAME_OVER' || isReviewingPast}
-                    title={t.game.resign}
-                  >
-                    🏳️ {t.game.resign}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleRequestDraw}
-                    disabled={status === 'GAME_OVER' || isReviewingPast}
-                    title={t.game.drawOffer}
-                  >
-                    🤝 {t.game.drawOffer}
-                  </button>
-                </div>
+                    <div className={styles.controlsSecondary}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleRequestResign}
+                        disabled={status === 'GAME_OVER' || isReviewingPast}
+                        title={t.game.resign}
+                      >
+                        🏳️ {t.game.resign}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={handleRequestDraw}
+                        disabled={status === 'GAME_OVER' || isReviewingPast}
+                        title={t.game.drawOffer}
+                      >
+                        🤝 {t.game.drawOffer}
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ flex: 1, fontSize: '0.76rem', padding: '0.35rem' }}
+                        onClick={handleCopyMatchLog}
+                        disabled={moves.length === 0}
+                        title={t.game.btnCopyLog}
+                      >
+                        📋 {t.game.btnCopyLog}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline-gold"
+                        style={{ flex: 1.2, fontSize: '0.76rem', padding: '0.35rem' }}
+                        onClick={handleAnalyzeMatch}
+                        disabled={moves.length === 0}
+                        title={t.game.btnAnalyzeMatch}
+                      >
+                        {t.game.btnAnalyzeMatch}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Copy notification toast */}
+                {copyNotification && (
+                  <div className={styles.copyToast}>
+                    ✓ {copyNotification}
+                  </div>
+                )}
               </div>
 
               {/* Tactical Piece Detail Panel */}
@@ -1866,14 +2271,25 @@ export const App: React.FC = () => {
 
         {/* TAB 4: GAME ANALYSIS RECORD */}
         {activeTab === 'replays' && (
-          <GameAnalysisRecord lang={lang} activeMatchMoves={moves} />
+          <GameAnalysisRecord
+            lang={lang}
+            activeMatchMoves={moves}
+            initialText={analysisPreloadText}
+          />
         )}
 
-        {/* TAB 5: UNDER DEVELOPMENT MODULES (aiVsAi, stats) */}
+        {/* TAB 5: EXPERIMENT & TOURNAMENT STATISTICS */}
+        {activeTab === 'stats' && (
+          <Statistics lang={lang} />
+        )}
+
+        {/* TAB 6: UNDER DEVELOPMENT MODULES */}
         {activeTab !== 'home' &&
           activeTab !== 'play' &&
+          activeTab !== 'aiVsAi' &&
           activeTab !== 'rules' &&
-          activeTab !== 'replays' && (
+          activeTab !== 'replays' &&
+          activeTab !== 'stats' && (
           <div className={styles.devPanel}>
             <div className={styles.devBadge}>⚙</div>
             <h2 className={styles.devTitle}>
@@ -1950,6 +2366,7 @@ export const App: React.FC = () => {
         lang={lang}
         onNewGame={handleResetBoard}
         onClose={() => setIsGameOverModalOpen(false)}
+        onAnalyzeMatch={handleAnalyzeMatch}
       />
 
       <footer className={styles.footer}>

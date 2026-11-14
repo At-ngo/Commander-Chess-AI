@@ -47,6 +47,14 @@ export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
             >
               📊 {t.home.analysisTitle}
             </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ padding: '0.8rem 1.3rem' }}
+              onClick={() => onNavigate('stats')}
+            >
+              📈 {t.nav.stats}
+            </button>
           </div>
         </div>
 
@@ -169,21 +177,21 @@ export const Home: React.FC<HomeProps> = ({ lang, onNavigate }) => {
 
           {/* Card 4: AI vs AI Spectator */}
           <div
-            className={`${styles.modeCard} ${styles.modeCardDisabled}`}
-            onClick={() => onNavigate('aiVsAi')}
+            className={styles.modeCard}
+            onClick={() => onNavigate('aiVsAi', 'AI_VS_AI')}
             role="button"
             tabIndex={0}
           >
             <div>
               <div className={styles.modeTop}>
                 <div className={styles.modeIconBadge}>◈</div>
-                <span className="badge">{t.home.statusDev}</span>
+                <span className="badge">{t.home.statusReady}</span>
               </div>
               <h3 className={styles.modeTitle}>{t.home.aiVsAiTitle}</h3>
               <p className={styles.modeDesc}>{t.home.aiVsAiDesc}</p>
             </div>
-            <div className={styles.modeActionHint} style={{ color: 'var(--text-secondary)' }}>
-              <span>{lang === 'vi' ? 'Xem cấu hình' : 'View Config'}</span>
+            <div className={styles.modeActionHint}>
+              <span>{lang === 'vi' ? 'Khán đài đấu cờ' : 'Watch Match'}</span>
               <span>→</span>
             </div>
           </div>

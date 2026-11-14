@@ -12,6 +12,7 @@ interface GameOverModalProps {
   lang: Language;
   onNewGame: () => void;
   onClose: () => void;
+  onAnalyzeMatch?: () => void;
 }
 
 function formatDuration(seconds: number): string {
@@ -27,6 +28,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   lang,
   onNewGame,
   onClose,
+  onAnalyzeMatch,
 }) => {
   const [copied, setCopied] = useState(false);
   const t = translations[lang];
@@ -192,6 +194,20 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
               <span>📋 {lang === 'vi' ? 'Sao chép biên bản' : 'Copy Notation'}</span>
             )}
           </button>
+
+          {onAnalyzeMatch && (
+            <button
+              type="button"
+              className="btn btn-outline-gold"
+              onClick={() => {
+                onClose();
+                onAnalyzeMatch();
+              }}
+              title={lang === 'vi' ? 'Xem phân tích trận đấu trong Game Analysis Record' : 'Analyze match in Game Analysis Record'}
+            >
+              📊 {lang === 'vi' ? 'Phân tích trận này →' : 'Analyze Match →'}
+            </button>
+          )}
 
           <button
             type="button"

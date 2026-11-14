@@ -129,10 +129,13 @@ export const apiClient = {
   /**
    * Kích hoạt nước đi của tác tử AI
    */
-  async aiStep(gameId: string, timeBudgetMs = 1000): Promise<ActionResponseDTO> {
+  async aiStep(gameId: string, timeBudgetMs?: number | null, agentId?: string | null): Promise<ActionResponseDTO> {
     return request(`/games/${gameId}/ai-step`, {
       method: 'POST',
-      body: JSON.stringify({ time_budget_ms: timeBudgetMs }),
+      body: JSON.stringify({
+        ...(timeBudgetMs !== undefined ? { time_budget_ms: timeBudgetMs } : {}),
+        ...(agentId ? { agent_id: agentId } : {}),
+      }),
     });
   },
 

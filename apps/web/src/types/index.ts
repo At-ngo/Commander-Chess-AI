@@ -92,6 +92,8 @@ export interface MoveRecord {
   notation: string;
   captured_piece_type?: PieceType | null;
   timestamp: number;
+  telemetry?: Record<string, any> | null;
+  agent_id?: string;
 }
 
 export interface MatchSnapshot {

@@ -5,6 +5,7 @@ import {
   AnalysisResult,
   CompoundEventTag,
   formatMoveRecordsForRecordInput,
+  formatMovesAsAiJsonRecord,
   parseAndReplayRecord,
   SAMPLE_AI_VS_AI_JSON_RECORD,
   SAMPLE_NOTATION_RECORD,
@@ -18,17 +19,19 @@ import styles from './GameAnalysisRecord.module.css';
 interface GameAnalysisRecordProps {
   lang: Language;
   activeMatchMoves?: MoveRecord[];
+  initialText?: string;
 }
 
 export const GameAnalysisRecord: React.FC<GameAnalysisRecordProps> = ({
   lang,
   activeMatchMoves = [],
+  initialText,
 }) => {
   const t = translations[lang];
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moveListRef = useRef<HTMLDivElement>(null);
 
-  const [rawInput, setRawInput] = useState<string>('');
+  const [rawInput, setRawInput] = useState<string>(initialText || '');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState<boolean>(false);
@@ -51,6 +54,13 @@ export const GameAnalysisRecord: React.FC<GameAnalysisRecordProps> = ({
       setCurrentStep(0);
     }
   };
+
+  useEffect(() => {
+    if (initialText && initialText.trim().length > 0) {
+      setRawInput(initialText);
+      runAnalysis(initialText);
+    }
+  }, [initialText]);
 
   const frames = analysis?.success ? analysis.frames : [];
   const maxStep = Math.max(0, frames.length - 1);
@@ -138,7 +148,10 @@ export const GameAnalysisRecord: React.FC<GameAnalysisRecordProps> = ({
 
   const handleImportActiveMatch = () => {
     if (activeMatchMoves.length === 0) return;
-    const text = formatMoveRecordsForRecordInput(activeMatchMoves);
+    const hasAiTelemetry = activeMatchMoves.some((m) => m.telemetry != null);
+    const text = hasAiTelemetry
+      ? formatMovesAsAiJsonRecord(activeMatchMoves)
+      : formatMoveRecordsForRecordInput(activeMatchMoves);
     setRawInput(text);
     runAnalysis(text);
   };
@@ -681,6 +694,18 @@ export const GameAnalysisRecord: React.FC<GameAnalysisRecordProps> = ({
                     <div className={styles.teleRow}>
                       <span>{t.analysis.nodesVisited}</span>
                       <strong>{currentFrame.telemetry.nodesVisited}</strong>
+                    </div>
+                  )}
+                  {currentFrame.telemetry.depth != null && (
+                    <div className={styles.teleRow}>
+                      <span>{t.analysis.searchDepth}</span>
+                      <strong>{currentFrame.telemetry.depth}</strong>
+                    </div>
+                  )}
+                  {currentFrame.telemetry.nodesPerSecond != null && (
+                    <div className={styles.teleRow}>
+                      <span>{t.analysis.nodesPerSecond}</span>
+                      <strong>{currentFrame.telemetry.nodesPerSecond.toFixed(1)} nps</strong>
                     </div>
                   )}
                   {currentFrame.telemetry.simulations != null && (

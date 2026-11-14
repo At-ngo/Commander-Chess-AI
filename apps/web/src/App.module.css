@@ -434,6 +434,158 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
+/* Agent Selection Controls */
+.agentSelectSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  padding: 0.5rem;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.agentSelectLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.agentSelectInput {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  width: 100%;
+  transition: border-color var(--transition-fast);
+}
+
+.agentSelectInput:hover,
+.agentSelectInput:focus {
+  border-color: var(--gold-primary);
+}
+
+.agentPairRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.agentCol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/* Spectator Matchup and Playback Controls */
+.spectatorMatchupCard {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.matchupRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.matchupAgentRed {
+  color: var(--crimson-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matchupAgentBlue {
+  color: var(--team-blue);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matchupActiveBadge {
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid var(--gold-primary);
+  color: var(--gold-primary);
+  font-size: 0.65rem;
+  padding: 0.08rem 0.3rem;
+  border-radius: 999px;
+  animation: pulseAi 1.5s infinite;
+}
+
+.speedSelectorGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-top: 0.25rem;
+}
+
+.speedBtn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.speedBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.speedBtnActive {
+  background: var(--gold-primary);
+  color: #0f141c;
+  border-color: var(--gold-primary);
+  font-weight: 700;
+}
+
+.copyToast {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid #22c55e;
+  color: #22c55e;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  animation: fadeInToast 0.2s ease-in-out;
+}
+
+@keyframes fadeInToast {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Rules View Styling */
 .rulesContainer {
   display: flex;

@@ -86,8 +86,27 @@ export interface Translations {
     aiMoveBtn: string;
     modeHumanVsAi: string;
     modeHumanVsHuman: string;
+    modeAiVsAi: string;
     modeLabel: string;
     aiBotName: string;
+    selectOpponent: string;
+    redAgentLabel: string;
+    blueAgentLabel: string;
+    agentRuleBased: string;
+    agentHeuristic: string;
+    agentRandom: string;
+    agentMinimax: string;
+    btnStartMatch: string;
+    btnPauseMatch: string;
+    btnResumeMatch: string;
+    btnStepMatch: string;
+    speedLabel: string;
+    btnCopyLog: string;
+    btnAnalyzeMatch: string;
+    copySuccessToast: string;
+    aiTimeLimitLabel: string;
+    aiTimeLimitUnlimited: string;
+    humanNoTimeLimit: string;
     navFirst: string;
     navPrev: string;
     navNext: string;
@@ -125,6 +144,8 @@ export interface Translations {
     heuristicScore: string;
     decisionTime: string;
     nodesVisited: string;
+    searchDepth: string;
+    nodesPerSecond: string;
     simulations: string;
     selectedActionRaw: string;
     heuristicBreakdown: string;
@@ -141,6 +162,32 @@ export interface Translations {
     tagDeploy: string;
     tagEndCompound: string;
     compoundActiveBadge: string;
+  };
+  stats: {
+    title: string;
+    subtitle: string;
+    filterAll: string;
+    filterExp07: string;
+    filterExp08: string;
+    filterExp09: string;
+    filterExp10: string;
+    totalMatchesLabel: string;
+    totalMatchesValue: string;
+    maxWinRateLabel: string;
+    bestAgentLabel: string;
+    testSeedsLabel: string;
+    hardwareTitle: string;
+    hardwareDesc: string;
+    btnZoom: string;
+    closeModal: string;
+    exp07Title: string;
+    exp07Desc: string;
+    exp08Title: string;
+    exp08Desc: string;
+    exp09Title: string;
+    exp09Desc: string;
+    exp10Title: string;
+    exp10Desc: string;
   };
   pieces: Record<string, string>;
 }
@@ -231,10 +278,29 @@ export const translations: Record<Language, Translations> = {
       backendOffline: 'Ngoại tuyến (Local Engine)',
       aiThinking: '🤖 AI đang suy nghĩ...',
       aiMoveBtn: '🤖 AI đi hộ',
-      modeHumanVsAi: 'Đấu với AI (Random)',
+      modeHumanVsAi: 'Người vs AI',
       modeHumanVsHuman: 'Hai người chơi',
+      modeAiVsAi: 'AI đối đầu AI (Khán đài)',
       modeLabel: 'Chế độ đối kháng',
-      aiBotName: 'Random AI (Phe Xanh)',
+      aiBotName: 'Tác tử AI',
+      selectOpponent: 'Chọn Tác Tử Đối Thủ:',
+      redAgentLabel: 'Tác tử phe Đỏ:',
+      blueAgentLabel: 'Tác tử phe Xanh:',
+      agentRuleBased: 'RULE-BASE AGENT',
+      agentHeuristic: 'HEURISTIC_AGENT',
+      agentRandom: 'RANDOM AGENT',
+      agentMinimax: 'MINIMAX AGENT (depth=2)',
+      btnStartMatch: '▶ Bắt đầu trận',
+      btnPauseMatch: '⏸ Tạm dừng',
+      btnResumeMatch: '▶ Tiếp tục',
+      btnStepMatch: '⏭ Đi 1 bước',
+      speedLabel: 'Tốc độ:',
+      btnCopyLog: '📋 Sao chép biên bản',
+      btnAnalyzeMatch: '📊 Phân tích trận này →',
+      copySuccessToast: 'Đã sao chép biên bản trận đấu!',
+      aiTimeLimitLabel: 'Giới hạn suy nghĩ AI:',
+      aiTimeLimitUnlimited: 'Không giới hạn',
+      humanNoTimeLimit: 'Người chơi & AI: Không giới hạn thời gian',
       navFirst: 'Đầu',
       navPrev: 'Lùi',
       navNext: 'Tiến',
@@ -272,6 +338,8 @@ export const translations: Record<Language, Translations> = {
       heuristicScore: 'Điểm Heuristic',
       decisionTime: 'Thời gian nghĩ',
       nodesVisited: 'Số nút duyệt',
+      searchDepth: 'Độ sâu tìm kiếm',
+      nodesPerSecond: 'Tốc độ duyệt',
       simulations: 'Số mô phỏng',
       selectedActionRaw: 'Hành động gốc',
       heuristicBreakdown: 'Thành phần Heuristic',
@@ -288,6 +356,32 @@ export const translations: Record<Language, Translations> = {
       tagDeploy: 'Triển khai',
       tagEndCompound: 'Chốt tổ hợp',
       compoundActiveBadge: 'Đang mở lượt tổ hợp',
+    },
+    stats: {
+      title: 'Báo Cáo Thống Kê & Thực Nghiệm AI',
+      subtitle: 'Tổng hợp định lượng kết quả đối đầu giải đấu, ma trận điểm số, kiểm định thống kê và trực quan hóa cây tìm kiếm qua 4 bài thực nghiệm chuẩn.',
+      filterAll: 'Tất cả thực nghiệm',
+      filterExp07: 'Bài 07: Random Baseline',
+      filterExp08: 'Bài 08: Rule-Based Agent',
+      filterExp09: 'Bài 09: Heuristic CCHEF (H1–H7)',
+      filterExp10: 'Bài 10: Minimax & Cây duyệt',
+      totalMatchesLabel: 'Tổng ván đấu thực nghiệm',
+      totalMatchesValue: '3.080+ ván',
+      maxWinRateLabel: 'Tỷ lệ thắng cao nhất (H6/MM)',
+      bestAgentLabel: 'Hàm tốt nhất: CCHEF H6',
+      testSeedsLabel: 'Bộ hạt giống chuẩn cố định',
+      hardwareTitle: 'Môi trường thực nghiệm chuẩn hóa',
+      hardwareDesc: '16 Cores CPU, 16GB RAM, Windows 11, Python 3.10, 10 Seeds cố định, max_turns = 200.',
+      btnZoom: '🔍 Phóng to biểu đồ',
+      closeModal: 'Đóng',
+      exp07Title: 'Thực nghiệm 07 — Tác tử Ngẫu nhiên (RandomAgent Baseline)',
+      exp07Desc: 'Kiểm định phân phối đồng đều nước đi (Chi-Square Test), tính đối xứng của Game Engine qua 400 ván đấu và độ trễ ra quyết định siêu tốc.',
+      exp08Title: 'Thực nghiệm 08 — Tác tử Dựa trên Luật (Rule-based Agent)',
+      exp08Desc: 'Giải đấu 1.280 ván giữa Ruleset_A (ưu tiên giải chiếu) và Ruleset_B (ưu tiên ăn quân) đối đầu Random và đối đầu trực tiếp (Ablation Check Safety).',
+      exp09Title: 'Thực nghiệm 09 — Thiết kế, Tối ưu & Đánh giá Hàm Heuristic CCHEF',
+      exp09Desc: 'Giải đấu vòng tròn Round-Robin 1.200 ván giữa 7 biến thể H1 -> H7 kết hợp Coarse-to-Fine Grid Search tìm bộ trọng số tối ưu toàn diện.',
+      exp10Title: 'Thực nghiệm 10 — Tác tử Minimax & Khảo sát Cây Tìm Kiếm Đối Kháng',
+      exp10Desc: 'Trực quan hóa cây tìm kiếm Minimax thực tế độ sâu d=2 với cắt tỉa Alpha-Beta, Candidate Pruning k=20 và hàm lượng giá lá CCHEF H6.',
     },
     pieces: {
       COMMANDER: 'Tư lệnh',
@@ -388,10 +482,29 @@ export const translations: Record<Language, Translations> = {
       backendOffline: 'Offline (Local Engine)',
       aiThinking: '🤖 AI is thinking...',
       aiMoveBtn: '🤖 AI Move',
-      modeHumanVsAi: 'vs Random AI',
+      modeHumanVsAi: 'Human vs AI',
       modeHumanVsHuman: 'Two Players',
+      modeAiVsAi: 'AI vs AI (Spectator)',
       modeLabel: 'Combat Mode',
-      aiBotName: 'Random AI (Blue Force)',
+      aiBotName: 'AI Agent',
+      selectOpponent: 'Select AI Opponent:',
+      redAgentLabel: 'Red Force Agent:',
+      blueAgentLabel: 'Blue Force Agent:',
+      agentRuleBased: 'RULE-BASE AGENT',
+      agentHeuristic: 'HEURISTIC_AGENT',
+      agentRandom: 'RANDOM AGENT',
+      agentMinimax: 'MINIMAX AGENT (depth=2)',
+      btnStartMatch: '▶ Start Match',
+      btnPauseMatch: '⏸ Pause',
+      btnResumeMatch: '▶ Resume',
+      btnStepMatch: '⏭ Step Next',
+      speedLabel: 'Speed:',
+      btnCopyLog: '📋 Copy Action Log',
+      btnAnalyzeMatch: '📊 Analyze Match →',
+      copySuccessToast: 'Action log copied to clipboard!',
+      aiTimeLimitLabel: 'AI Time Limit:',
+      aiTimeLimitUnlimited: 'Unlimited',
+      humanNoTimeLimit: 'Human & AI: No time limit',
       navFirst: 'First',
       navPrev: 'Prev',
       navNext: 'Next',
@@ -429,6 +542,8 @@ export const translations: Record<Language, Translations> = {
       heuristicScore: 'Heuristic Score',
       decisionTime: 'Decision Time',
       nodesVisited: 'Nodes Visited',
+      searchDepth: 'Search Depth',
+      nodesPerSecond: 'Search Speed',
       simulations: 'Simulations',
       selectedActionRaw: 'Raw Action',
       heuristicBreakdown: 'Heuristic Components',
@@ -445,6 +560,32 @@ export const translations: Record<Language, Translations> = {
       tagDeploy: 'Deploy',
       tagEndCompound: 'End Stack',
       compoundActiveBadge: 'Compound Turn Active',
+    },
+    stats: {
+      title: 'AI Research & Tournament Statistics',
+      subtitle: 'Quantitative benchmark results, score matrices, statistical tests, and search tree visualizer across 4 standardized research experiments.',
+      filterAll: 'All Experiments',
+      filterExp07: 'Exp 07: Random Baseline',
+      filterExp08: 'Exp 08: Rule-Based Agent',
+      filterExp09: 'Exp 09: Heuristic CCHEF (H1–H7)',
+      filterExp10: 'Exp 10: Minimax & Search Tree',
+      totalMatchesLabel: 'Total Evaluated Matches',
+      totalMatchesValue: '3,080+ Matches',
+      maxWinRateLabel: 'Peak Win Rate (H6/MM)',
+      bestAgentLabel: 'Top Evaluator: CCHEF H6',
+      testSeedsLabel: 'Standard Test Seeds',
+      hardwareTitle: 'Standardized Environment',
+      hardwareDesc: '16 Cores CPU, 16GB RAM, Windows 11, Python 3.10, 10 Fixed Seeds, max_turns = 200.',
+      btnZoom: '🔍 Zoom Diagram',
+      closeModal: 'Close',
+      exp07Title: 'Experiment 07 — Random Tactical Agent Baseline',
+      exp07Desc: 'Uniform move distribution test (Chi-Square), Game Engine symmetry verification over 400 matches, and high-throughput decision latency.',
+      exp08Title: 'Experiment 08 — Rule-based Tactical Agent',
+      exp08Desc: '1,280-match tournament between Ruleset_A (check safety first) and Ruleset_B (greedy capture) vs Random and Head-to-Head (Check Safety Ablation).',
+      exp09Title: 'Experiment 09 — CCHEF Military Heuristic Design & Tuning',
+      exp09Desc: '1,200-match Round-Robin tournament among 7 variants H1 -> H7 combined with Coarse-to-Fine Grid Search for optimal military feature weights.',
+      exp10Title: 'Experiment 10 — Minimax Adversarial Search & Tree Survey',
+      exp10Desc: 'Search tree visualization of depth d=2 Minimax with Alpha-Beta pruning, Candidate Pruning k=20, and CCHEF H6 leaf evaluation.',
     },
     pieces: {
       COMMANDER: 'Commander',

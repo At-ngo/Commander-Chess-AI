@@ -53,6 +53,8 @@ export interface DecisionTelemetry {
   heuristicComponents?: Record<string, number> | null;
   decisionTimeMs?: number | null;
   nodesVisited?: number | null;
+  depth?: number | null;
+  nodesPerSecond?: number | null;
   simulations?: number | null;
   legalActionCount?: number | null;
   stateHash?: string | null;
@@ -161,22 +163,23 @@ export const SAMPLE_NOTATION_RECORD = `[Format "COTULENH-NOTATION"]
 
 export const SAMPLE_AI_VS_AI_JSON_RECORD = JSON.stringify(
   {
+    format: 'AI_JSON_RECORD',
     run_id: 'sample_ai_eval_01',
-    game_id: 'game_0001',
+    game_id: 'game_sample_telemetry_01',
     seed: 2026,
     budget_mode: 'default',
-    agent_red: 'HeuristicAgent',
-    agent_blue: 'RuleBasedAgent',
-    red_config_id: 'balanced_v1',
-    blue_config_id: 'ruleset_b',
-    winner: null,
-    result_status: 'in_progress_sample',
-    termination_reason: 'SAMPLE_EXCERPT',
-    turn_count: 4,
-    total_decisions: 7,
-    total_atomic_actions: 7,
-    duration_sec: 0.142,
-    final_scores: { red: 10, blue: 0 },
+    agent_red: 'HEURISTIC_AGENT',
+    agent_blue: 'RULE-BASE AGENT',
+    red_config_id: 'H6_cchef',
+    blue_config_id: 'Ruleset_A',
+    winner: 'RED',
+    result_status: 'completed',
+    termination_reason: 'CHECKMATE',
+    turn_count: 3,
+    total_decisions: 5,
+    total_atomic_actions: 5,
+    duration_sec: 1.45,
+    final_scores: { red: 50, blue: 0 },
     moves: [
       {
         step_index: 1,
@@ -188,14 +191,22 @@ export const SAMPLE_AI_VS_AI_JSON_RECORD = JSON.stringify(
         end: [4, 5],
         target_piece_id: null,
         carry_cargo: true,
-        decision_time_ms: 18.4,
-        agent_name: 'HeuristicAgent',
-        agent_config_id: 'balanced_v1',
+        decision_time_ms: 241.8,
+        agent_name: 'HEURISTIC_AGENT',
+        agent_config_id: 'H6_cchef',
         selected_action: 'MOVE:red_tank_1@(3,5)->(4,5)',
         rule_triggered: null,
-        heuristic_score: 18.4,
-        heuristic_components: { advancement: 6.2, mobility: 4.5, safety: 7.7 },
-        nodes_visited: 142,
+        heuristic_score: 0.02925,
+        heuristic_components: {
+          M: 0.0,
+          K: 0.0,
+          Q: 0.0,
+          P: 0.0792,
+          C: 0.0894,
+          D: 0.1,
+          T: 0.0791,
+        },
+        nodes_visited: 114,
         simulations: 0,
       },
       {
@@ -208,11 +219,11 @@ export const SAMPLE_AI_VS_AI_JSON_RECORD = JSON.stringify(
         end: [6, 2],
         target_piece_id: null,
         carry_cargo: true,
-        decision_time_ms: 6.1,
-        agent_name: 'RuleBasedAgent',
-        agent_config_id: 'ruleset_b',
+        decision_time_ms: 35.5,
+        agent_name: 'RULE-BASE AGENT',
+        agent_config_id: 'Ruleset_A',
         selected_action: 'MOVE:blue_infantry_1@(7,2)->(6,2)',
-        rule_triggered: 'FALLBACK',
+        rule_triggered: 'SAFE_HIGH_VALUE_CAPTURE',
         heuristic_score: null,
         nodes_visited: null,
         simulations: null,
@@ -221,20 +232,21 @@ export const SAMPLE_AI_VS_AI_JSON_RECORD = JSON.stringify(
         step_index: 3,
         turn_number: 2,
         player: 'red',
-        action_type: 'board',
-        piece_id: 'red_militia_1',
-        start: [4, 6],
-        end: [4, 5],
-        target_piece_id: 'red_tank_1',
+        action_type: 'move',
+        piece_id: 'red_artillery_1',
+        start: [3, 3],
+        end: [4, 3],
+        target_piece_id: null,
         carry_cargo: true,
-        decision_time_ms: 21.7,
-        agent_name: 'HeuristicAgent',
-        agent_config_id: 'balanced_v1',
-        selected_action: 'BOARD:red_militia_1@(4,6)->(4,5)#carrier=red_tank_1',
-        heuristic_score: 24.1,
-        heuristic_components: { coordination: 8.5, safety: 15.6 },
-        nodes_visited: 164,
-        simulations: 0,
+        decision_time_ms: 309.4,
+        agent_name: 'MINIMAX_AGENT',
+        agent_config_id: 'minimax_d2_k20',
+        selected_action: 'MOVE:red_artillery_1@(3,3)->(4,3)',
+        rule_triggered: null,
+        heuristic_score: 0.0315,
+        nodes_visited: 842,
+        depth: 2,
+        nodes_per_second: 5820.0,
       },
       {
         step_index: 4,
@@ -246,65 +258,38 @@ export const SAMPLE_AI_VS_AI_JSON_RECORD = JSON.stringify(
         end: [7, 5],
         target_piece_id: null,
         carry_cargo: true,
-        decision_time_ms: 5.8,
-        agent_name: 'RuleBasedAgent',
-        agent_config_id: 'ruleset_b',
+        decision_time_ms: 18.2,
+        agent_name: 'RULE-BASE AGENT',
+        agent_config_id: 'Ruleset_A',
         selected_action: 'MOVE:blue_tank_1@(8,5)->(7,5)',
-        rule_triggered: 'FALLBACK',
+        rule_triggered: 'DEFEND_COMMANDER',
       },
       {
         step_index: 5,
         turn_number: 3,
         player: 'red',
-        action_type: 'move',
-        piece_id: 'red_tank_1',
-        start: [4, 5],
-        end: [4, 4],
-        target_piece_id: null,
-        carry_cargo: true,
-        decision_time_ms: 25.3,
-        agent_name: 'HeuristicAgent',
-        agent_config_id: 'balanced_v1',
-        selected_action: 'MOVE:red_tank_1@(4,5)->(4,4)',
-        heuristic_score: 31.2,
-        heuristic_components: { threat: 12.0, advancement: 10.4, safety: 8.8 },
-        nodes_visited: 198,
-        simulations: 0,
-      },
-      {
-        step_index: 6,
-        turn_number: 3,
-        player: 'blue',
-        action_type: 'move',
-        piece_id: 'blue_infantry_1',
-        start: [6, 2],
-        end: [5, 2],
-        target_piece_id: null,
-        carry_cargo: true,
-        decision_time_ms: 7.4,
-        agent_name: 'RuleBasedAgent',
-        agent_config_id: 'ruleset_b',
-        selected_action: 'MOVE:blue_infantry_1@(6,2)->(5,2)',
-        rule_triggered: 'FALLBACK',
-      },
-      {
-        step_index: 7,
-        turn_number: 4,
-        player: 'red',
         action_type: 'capture',
         piece_id: 'red_infantry_1',
         start: [4, 2],
-        end: [5, 2],
+        end: [6, 2],
         target_piece_id: 'blue_infantry_1',
         carry_cargo: true,
-        decision_time_ms: 19.2,
-        agent_name: 'HeuristicAgent',
-        agent_config_id: 'balanced_v1',
-        selected_action: 'CAPTURE:red_infantry_1@(4,2)->(5,2)#target=blue_infantry_1',
-        rule_triggered: 'CAPTURE_HIGH_VALUE',
-        heuristic_score: 54.8,
-        heuristic_components: { material: 20.0, river_control: 14.8, safety: 20.0 },
-        nodes_visited: 155,
+        decision_time_ms: 185.3,
+        agent_name: 'HEURISTIC_AGENT',
+        agent_config_id: 'H6_cchef',
+        selected_action: 'CAPTURE:red_infantry_1@(4,2)->(6,2)#target=blue_infantry_1',
+        rule_triggered: null,
+        heuristic_score: 0.1584,
+        heuristic_components: {
+          M: 0.05,
+          K: 0.0,
+          Q: 0.0,
+          P: 0.082,
+          C: 0.091,
+          D: 0.1,
+          T: 0.105,
+        },
+        nodes_visited: 98,
         simulations: 0,
       },
     ],
@@ -508,6 +493,7 @@ function parseJsonMoveItem(item: Record<string, unknown>): ParsedStep | null {
     const act = item.action as Record<string, unknown>;
     const side = normalizeSide((item.side as string) || (act.side as string));
     const actType = mapActionType(act.action_type as string);
+    const itemTelemetry = (item.telemetry || act.telemetry) as DecisionTelemetry | undefined;
     if (actType === 'END_TURN') {
       return {
         kind: 'END_TURN',
@@ -515,6 +501,7 @@ function parseJsonMoveItem(item: Record<string, unknown>): ParsedStep | null {
         turnNumber: itemTurnNum,
         actionType: 'END_TURN',
         notationHint: (item.notation as string) || (act.notation as string) || 'CONFIRM_DEPLOYMENT',
+        telemetry: itemTelemetry || null,
       };
     }
     return {
@@ -534,6 +521,7 @@ function parseJsonMoveItem(item: Record<string, unknown>): ParsedStep | null {
           ? undefined
           : Boolean(act.carry_cargo),
       notationHint: (item.notation as string) || (act.notation as string),
+      telemetry: itemTelemetry || null,
     };
   }
 
@@ -566,6 +554,13 @@ function parseJsonMoveItem(item: Record<string, unknown>): ParsedStep | null {
       typeof item.decision_time_ms === 'number' ? item.decision_time_ms : null,
     nodesVisited:
       typeof item.nodes_visited === 'number' ? item.nodes_visited : null,
+    depth: typeof item.depth === 'number' ? item.depth : undefined,
+    nodesPerSecond:
+      typeof item.nodes_per_second === 'number'
+        ? item.nodes_per_second
+        : typeof item.nodesPerSecond === 'number'
+        ? item.nodesPerSecond
+        : undefined,
     simulations:
       typeof item.simulations === 'number' ? item.simulations : null,
     legalActionCount:
@@ -1352,6 +1347,93 @@ export function formatFullMatchNotation(
     ``,
     ...(moveBody ? [moveBody] : []),
   ].join('\n');
+}
+
+export function formatMovesAsAiJsonRecord(
+  moves: MoveRecord[],
+  meta?: {
+    gameId?: string;
+    redAgent?: string;
+    blueAgent?: string;
+    redConfigId?: string;
+    blueConfigId?: string;
+    winner?: string | null;
+    reason?: string;
+    finalScores?: { RED: number; BLUE: number };
+    durationSec?: number;
+  }
+): string {
+  const finalScores = meta?.finalScores || { RED: 0, BLUE: 0 };
+  const movesJson = moves.map((mv, idx) => {
+    const act = mv.action;
+    const tele = (mv.telemetry || {}) as Record<string, any>;
+    const stepIdx = idx + 1;
+    const turnNum = Math.ceil(stepIdx / 2);
+    const player = mv.side.toLowerCase();
+
+    let actionType = 'move';
+    if (act.action_type === 'CAPTURE_REPLACE') actionType = 'capture';
+    else if (act.action_type === 'CAPTURE_STAND') actionType = 'bombard';
+    else if (act.action_type === 'BOARD') actionType = 'board';
+    else if (act.action_type === 'END_TURN') actionType = 'end_turn';
+
+    const item: Record<string, unknown> = {
+      step_index: stepIdx,
+      turn_number: turnNum,
+      player,
+      action_type: actionType,
+      piece_id: act.piece_id,
+      start: act.from_pos ? [act.from_pos.y, act.from_pos.x] : null,
+      end: act.to_pos ? [act.to_pos.y, act.to_pos.x] : null,
+      target_piece_id: act.target_piece_id || null,
+      carry_cargo: act.carry_cargo,
+      notation: mv.notation || act.notation,
+      agent_name:
+        tele.agent_name ||
+        (mv.side === 'RED' ? meta?.redAgent : meta?.blueAgent) ||
+        mv.agent_id ||
+        'AI_AGENT',
+      agent_config_id:
+        tele.agent_config_id ||
+        (mv.side === 'RED' ? meta?.redConfigId : meta?.blueConfigId) ||
+        undefined,
+      selected_action: tele.selected_action || `${act.action_type}:${act.piece_id}`,
+      decision_time_ms: tele.decision_time_ms != null ? Number(tele.decision_time_ms) : undefined,
+    };
+
+    if (tele.rule_triggered != null) item.rule_triggered = tele.rule_triggered;
+    if (tele.rule_priority != null) item.rule_priority = tele.rule_priority;
+    if (tele.heuristic_score != null) item.heuristic_score = Number(tele.heuristic_score);
+    if (tele.heuristic_components != null) item.heuristic_components = tele.heuristic_components;
+    if (tele.nodes_visited != null) item.nodes_visited = Number(tele.nodes_visited);
+    if (tele.depth != null) item.depth = Number(tele.depth);
+    if (tele.nodes_per_second != null) item.nodes_per_second = Number(tele.nodes_per_second);
+    if (tele.simulations != null) item.simulations = Number(tele.simulations);
+
+    return item;
+  });
+
+  const recordObj = {
+    format: 'AI_JSON_RECORD',
+    game_id: meta?.gameId || `game_${Date.now()}`,
+    agent_red: meta?.redAgent || 'RULE-BASE AGENT',
+    agent_blue: meta?.blueAgent || 'HEURISTIC_AGENT',
+    red_config_id: meta?.redConfigId || 'Ruleset_A',
+    blue_config_id: meta?.blueConfigId || 'H6_cchef',
+    winner: meta?.winner || null,
+    result_status: meta?.winner ? 'completed' : 'in_progress',
+    termination_reason: meta?.reason || 'NORMAL',
+    turn_count: Math.max(1, Math.ceil(moves.length / 2)),
+    total_decisions: moves.length,
+    duration_sec: meta?.durationSec || 0,
+    final_scores: {
+      red: finalScores.RED,
+      blue: finalScores.BLUE,
+    },
+    moves: movesJson,
+  };
+
+  return JSON.stringify(recordObj, null, 2);
 }
 
 export function parseAndReplayRecord(rawInput: string): AnalysisResult {
