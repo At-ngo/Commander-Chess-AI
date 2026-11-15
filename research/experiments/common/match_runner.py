@@ -255,7 +255,9 @@ def run_match(
         state_hash = compute_state_hash(state) if record_moves else ""
         t0 = time.perf_counter()
         try:
-            decision = agents[player].select_action(state, legal_actions)
+            decision = agents[player].select_action(
+                state, legal_actions, move_timeout_ms=move_timeout_ms
+            )
         except Exception as exc:
             dt_ms = (time.perf_counter() - t0) * 1000.0
             (red_times if player == Player.RED else blue_times).append(dt_ms)

@@ -85,6 +85,17 @@ data/local/*
 *.log
 tmp/
 temp/
+wandb/
+
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc
 
 # Working logs and notes
 docs/COMPLETED.md

@@ -44,6 +44,10 @@ def _select_game_seed(idx: int, *, side_balance: bool, base_seed: int, seeds: Se
 
 def _run_head_to_head_worker(task: dict[str, Any]) -> tuple[int, MatchResult]:
     """Hàm worker top-level phục vụ chạy song song bằng ProcessPoolExecutor trên Windows/Linux."""
+    os.environ["WANDB_MODE"] = "disabled"
+    os.environ["WANDB_DISABLED"] = "true"
+    os.environ["WANDB_SILENT"] = "true"
+
     red_key = task["red_key"]
     blue_key = task["blue_key"]
     game_seed = task["game_seed"]
