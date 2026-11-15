@@ -92,7 +92,7 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
           <span className={styles.kpiLabel}>{t.stats.totalMatchesLabel}</span>
           <strong className={styles.kpiValue}>{t.stats.totalMatchesValue}</strong>
           <span className={styles.kpiHint}>
-            {lang === 'vi' ? '400 (E07) + 1.280 (E08) + 1.200 (E09) + 200 (E10)' : '400 (E07) + 1,280 (E08) + 1,200 (E09) + 200 (E10)'}
+            {lang === 'vi' ? '400 (E07) + 1.280 (E08) + 1.200 (E09) + 1.360 (E10)' : '400 (E07) + 1,280 (E08) + 1,200 (E09) + 1,360 (E10)'}
           </span>
         </div>
 
@@ -100,15 +100,15 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
           <span className={styles.kpiLabel}>{t.stats.maxWinRateLabel}</span>
           <strong className={styles.kpiValue} style={{ color: '#22c55e' }}>100.0%</strong>
           <span className={styles.kpiHint}>
-            {lang === 'vi' ? 'CCHEF H6 (490/490) & Minimax d=2 (199/199)' : 'CCHEF H6 (490/490) & Minimax d=2 (199/199)'}
+            {lang === 'vi' ? 'CCHEF H6 (490/490) & Minimax d=2 (516/516 unconstrained)' : 'CCHEF H6 (490/490) & Minimax d=2 (516/516 unconstrained)'}
           </span>
         </div>
 
         <div className={styles.kpiCard}>
           <span className={styles.kpiLabel}>{t.stats.bestAgentLabel}</span>
-          <strong className={styles.kpiValue} style={{ fontSize: '1.25rem' }}>CCHEF H6</strong>
+          <strong className={styles.kpiValue} style={{ fontSize: '1.25rem' }}>Minimax d=2</strong>
           <span className={styles.kpiHint}>
-            {lang === 'vi' ? '7 đặc trưng quân sự + Lượng giá nước đi ghép' : '7 Military features + Compound action eval'}
+            {lang === 'vi' ? 'Tìm kiếm đối kháng 2-ply + Lượng giá lá CCHEF H6' : 'Adversarial 2-ply Search + CCHEF H6 Leaf Eval'}
           </span>
         </div>
 
@@ -404,10 +404,34 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
               className={styles.chartCard}
               onClick={() =>
                 openZoom(
+                  '/assets/stats/exp08_fig_02_score_ci.png',
+                  lang === 'vi'
+                    ? 'Hình 4.6: Khoảng tin cậy Bootstrap 95% điểm số của các hệ luật (Ruleset_A vs Random, Ruleset_B vs Random, A vs B)'
+                    : 'Fig 4.6: Bootstrap 95% Confidence Intervals for Ruleset Scores'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp08_fig_02_score_ci.png"
+                  alt="Ruleset Score CI"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Khoảng tin cậy Bootstrap 95% điểm số' : 'Bootstrap 95% Score CI'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
                   '/assets/stats/exp08_fig_04_check_safety_ablation.png',
                   lang === 'vi'
-                    ? 'Hình 4.6: Ablation Study — Hiệu quả cốt lõi của quy tắc Check Safety (Ruleset_A thắng 63.6%)'
-                    : 'Fig 4.6: Ablation Study — Impact of Check Safety Rule'
+                    ? 'Hình 4.7: Ablation Study — Hiệu quả cốt lõi của quy tắc Check Safety (Ruleset_A thắng 63.6%)'
+                    : 'Fig 4.7: Ablation Study — Impact of Check Safety Rule'
                 )
               }
             >
@@ -430,8 +454,8 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
                 openZoom(
                   '/assets/stats/exp08_fig_03_rule_frequency.png',
                   lang === 'vi'
-                    ? 'Hình 4.7: Tần suất kích hoạt các quy tắc chiến thuật (Bảo vệ Tư lệnh, Ăn quân, Thoát hiểm)'
-                    : 'Fig 4.7: Activation Frequency of Tactical Rules'
+                    ? 'Hình 4.8: Tần suất kích hoạt các quy tắc chiến thuật (Bảo vệ Tư lệnh, Ăn quân, Thoát hiểm)'
+                    : 'Fig 4.8: Activation Frequency of Tactical Rules'
                 )
               }
             >
@@ -452,10 +476,34 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
               className={styles.chartCard}
               onClick={() =>
                 openZoom(
+                  '/assets/stats/exp08_fig_05_latency.png',
+                  lang === 'vi'
+                    ? 'Hình 4.9: Phân phối thời gian ra quyết định của RuleBasedAgent (38 - 102 ms/nước, phản hồi thời gian thực tức thì)'
+                    : 'Fig 4.9: Decision Latency Distribution of RuleBasedAgent (38 - 102 ms/move)'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp08_fig_05_latency.png"
+                  alt="Ruleset Latency"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Phân phối độ trễ suy nghĩ (38 - 102 ms/nước)' : 'Decision Latency (38 - 102 ms/move)'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
                   '/assets/stats/exp08_fig_06_red_blue_split.png',
                   lang === 'vi'
-                    ? 'Hình 4.8: So sánh thành tích theo màu cờ Đỏ (đi trước) và Xanh'
-                    : 'Fig 4.8: Performance Split by Faction Color (Red vs Blue)'
+                    ? 'Hình 4.10: So sánh thành tích theo màu cờ Đỏ (đi trước) và Xanh'
+                    : 'Fig 4.10: Performance Split by Faction Color (Red vs Blue)'
                 )
               }
             >
@@ -658,10 +706,82 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
               className={styles.chartCard}
               onClick={() =>
                 openZoom(
+                  '/assets/stats/exp09_fig_05_h1_h7_vs_random_budgets.png',
+                  lang === 'vi'
+                    ? 'Hình 4.13: Thành tích đối đầu giữa H1 -> H7 và RandomAgent qua 2 chế độ ngân sách'
+                    : 'Fig 4.13: H1 to H7 Performance vs RandomAgent Across Budget Modes'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp09_fig_05_h1_h7_vs_random_budgets.png"
+                  alt="H1-H7 vs Random"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Thành tích H1 -> H7 vs Random qua 2 chế độ' : 'H1-H7 vs Random Across Budgets'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp09_fig_06_h1_h7_vs_rulesA_budgets.png',
+                  lang === 'vi'
+                    ? 'Hình 4.14: Bước nhảy vọt thành tích từ 7.2% lên 98.8% khi H1 -> H7 đối đầu Ruleset_A'
+                    : 'Fig 4.14: Win Rate Leap (7.2% to 98.8%) of H1 to H7 vs Ruleset_A'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp09_fig_06_h1_h7_vs_rulesA_budgets.png"
+                  alt="H1-H7 vs Ruleset_A"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Bước nhảy vọt thành tích vs Ruleset_A (7.2% -> 98.8%)' : 'Win Rate Leap vs Ruleset_A (7.2% -> 98.8%)'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp09_fig_08_latency_and_timeout_1000ms.png',
+                  lang === 'vi'
+                    ? 'Hình 4.15: Phân phối độ trễ suy nghĩ (238 - 350 ms/nước) và kiểm soát an toàn trần 1000 ms của Heuristic'
+                    : 'Fig 4.15: Decision Latency (238 - 350 ms/move) and 1000 ms Timeout Compliance'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp09_fig_08_latency_and_timeout_1000ms.png"
+                  alt="Heuristic Latency & Timeout"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Độ trễ suy nghĩ & kiểm soát trần 1000 ms' : 'Decision Latency & 1000 ms Budget'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
                   '/assets/stats/exp09_fig_07_red_vs_blue_advantage.png',
                   lang === 'vi'
-                    ? 'Hình 4.12: Phân tích lợi thế đi trước giữa phe Đỏ và phe Xanh'
-                    : 'Fig 4.12: First-Move Advantage Analysis (Red vs Blue)'
+                    ? 'Hình 4.16: Phân tích lợi thế đi trước giữa phe Đỏ và phe Xanh'
+                    : 'Fig 4.16: First-Move Advantage Analysis (Red vs Blue)'
                 )
               }
             >
@@ -691,7 +811,19 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
               </h2>
               <p className={styles.sectionDesc}>{t.stats.exp10Desc}</p>
             </div>
-            <span className="badge">Minimax d=2 (Alpha-Beta, k=20)</span>
+            <span className="badge">1.200 {lang === 'vi' ? 'ván Giải đấu + 160 ván Ablation' : 'Tournament + 160 Ablation matches'}</span>
+          </div>
+
+          {/* Minimax Architecture & Strategy Box */}
+          <div className={styles.formulaBox}>
+            <span className={styles.formulaTitle}>
+              {lang === 'vi' ? 'Kiến Trúc Tìm Kiếm Đối Kháng & Kiểm Soát Bùng Nổ Tổ Hợp:' : 'Adversarial Search Architecture & Complexity Control:'}
+            </span>
+            <div className={styles.formulaText}>
+              {lang === 'vi'
+                ? 'Minimax d = 2 (MAX → MIN) | Cắt tỉa Alpha-Beta | Candidate Pruning k = 20 (thu hẹp cây ~8.100 → ≤400 nút) | Lượng giá lá: CCHEF H6'
+                : 'Minimax d = 2 (MAX → MIN) | Alpha-Beta Pruning | Candidate Pruning k = 20 (prunes ~8,100 → ≤400 nodes) | Leaf Evaluation: CCHEF H6'}
+            </div>
           </div>
 
           {/* Minimax Tree Diagram Card */}
@@ -699,7 +831,7 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
             className={styles.treeCard}
             onClick={() =>
               openZoom(
-                '/assets/stats/sample_minimax_tree.png',
+                '/assets/stats/exp10_fig_10_minimax_search_tree.png',
                 lang === 'vi'
                   ? 'Hình 4.13: Sơ đồ Cây tìm kiếm Minimax thực tế độ sâu d=2 với phân tầng MAX/MIN, cắt tỉa Alpha-Beta và lượng giá lá CCHEF H6'
                   : 'Fig 4.13: Real Adversarial Minimax Search Tree (depth d=2 with Alpha-Beta and CCHEF H6 leaf values)'
@@ -708,7 +840,7 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
           >
             <div className={styles.treeImgWrapper}>
               <img
-                src="/assets/stats/sample_minimax_tree.png"
+                src="/assets/stats/exp10_fig_10_minimax_search_tree.png"
                 alt="Minimax Search Tree Structure"
                 className={styles.treeImg}
               />
@@ -723,46 +855,409 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
             </div>
           </div>
 
-          {/* Table 10 */}
+          {/* Subheading: Tournament Results */}
+          <div style={{ marginTop: '0.5rem', marginBottom: '-0.5rem' }}>
+            <h3 style={{ fontSize: '1rem', color: 'var(--gold-primary)', fontFamily: 'var(--font-display)', margin: 0 }}>
+              {lang === 'vi' ? '1. Kết Quả Giải Đấu 1.200 Ván Đối Đầu Các Đường Cơ Sở (6 Cặp Đấu):' : '1. Tournament Results (1,200 Matches Across 6 Matchups):'}
+            </h3>
+          </div>
+
+          {/* Table 10a: Tournament */}
           <div className={styles.tableWrapper}>
             <table className={styles.table}>
               <thead>
                 <tr>
-                  <th>{lang === 'vi' ? 'Cấu hình thực nghiệm' : 'Experiment Setup'}</th>
-                  <th>{lang === 'vi' ? 'Đối thủ' : 'Opponent'}</th>
+                  <th>{lang === 'vi' ? 'Cặp đối đầu' : 'Matchup'}</th>
+                  <th>{lang === 'vi' ? 'Chế độ' : 'Mode'}</th>
                   <th>{lang === 'vi' ? 'Tổng ván' : 'Total'}</th>
-                  <th>{lang === 'vi' ? 'Kết quả Thắng - Thua' : 'Wins - Losses'}</th>
+                  <th>{lang === 'vi' ? 'Thắng (MM)' : 'Win (MM)'}</th>
+                  <th>{lang === 'vi' ? 'Hòa (Truncated)' : 'Draw (Trunc)'}</th>
+                  <th>{lang === 'vi' ? 'Thua (MM)' : 'Loss (MM)'}</th>
                   <th>{lang === 'vi' ? 'Tỷ lệ thắng (95% CI)' : 'Win Rate (95% CI)'}</th>
-                  <th>{lang === 'vi' ? 'Nút duyệt / Tốc độ (NPS)' : 'Nodes Visited / NPS'}</th>
+                  <th>{lang === 'vi' ? 'Điểm số (Score)' : 'Score'}</th>
+                  <th>{lang === 'vi' ? 'Độ trễ TB' : 'Avg Latency'}</th>
+                  <th>{lang === 'vi' ? 'Nút duyệt / NPS' : 'Nodes / NPS'}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr className={styles.highlightRow}>
-                  <td><strong>Minimax d=1 (Ablation Depth)</strong></td>
-                  <td>Ruleset_A</td>
-                  <td>28</td>
-                  <td>28 — 0 (Thắng tuyệt đối)</td>
-                  <td className={styles.winRateHigh}>1.000 [0.877, 1.000] (100%)</td>
-                  <td>20 nodes / 80 - 150 NPS</td>
+                  <td><strong>Minimax d=2 vs Random</strong></td>
+                  <td><code>default</code></td>
+                  <td>200</td>
+                  <td>199</td>
+                  <td>1</td>
+                  <td>0</td>
+                  <td className={styles.winRateHigh}>1.000 [1.000, 1.000] (100%)</td>
+                  <td className={styles.winRateHigh}>0.998 [0.995, 1.000]</td>
+                  <td>11.82 ms (p95: 57.65 ms)</td>
+                  <td>834.7 nodes / 83.8 NPS</td>
                 </tr>
                 <tr className={styles.highlightRow}>
-                  <td><strong>Minimax d=2 (Alpha-Beta, k=20)</strong></td>
-                  <td>RandomAgent</td>
+                  <td><strong>Minimax d=2 vs Ruleset_A</strong></td>
+                  <td><code>default</code></td>
                   <td>200</td>
-                  <td>199 — 0 (1 hòa chạm trần)</td>
-                  <td className={styles.winRateHigh}>1.000 [0.981, 1.000] (100%)</td>
-                  <td>834 - 1.362 nodes / 180 - 300 NPS</td>
+                  <td>181</td>
+                  <td>19</td>
+                  <td>0</td>
+                  <td className={styles.winRateHigh}>1.000 [1.000, 1.000] (100%)</td>
+                  <td className={styles.winRateHigh}>0.953 [0.925, 0.980]</td>
+                  <td>12.87 ms (p95: 59.83 ms)</td>
+                  <td>1.256.8 nodes / 114.6 NPS</td>
+                </tr>
+                <tr className={styles.highlightRow}>
+                  <td><strong>Minimax d=2 vs Heuristic_H6</strong></td>
+                  <td><code>default</code></td>
+                  <td>200</td>
+                  <td>136</td>
+                  <td>64</td>
+                  <td>0</td>
+                  <td className={styles.winRateHigh}>1.000 [1.000, 1.000] (100%)</td>
+                  <td className={styles.winRateHigh}>0.840 [0.790, 0.890]</td>
+                  <td>8.21 ms (p95: 39.46 ms)</td>
+                  <td>586.6 nodes / 197.0 NPS</td>
                 </tr>
                 <tr>
-                  <td>Minimax d=2 (Ngân sách n=1000)</td>
-                  <td>Ruleset_A</td>
-                  <td>40</td>
-                  <td>Đang vận hành thực nghiệm</td>
-                  <td className={styles.winRateMid}>Đang hoàn tất 40 ván</td>
-                  <td>Giới hạn ngân sách 1.000 nút duyệt</td>
+                  <td>Minimax d=2 vs Random</td>
+                  <td><code>controlled</code> (1000ms)</td>
+                  <td>200</td>
+                  <td>190</td>
+                  <td>10</td>
+                  <td>0</td>
+                  <td className={styles.winRateHigh}>1.000 [0.980, 1.000] (100%)</td>
+                  <td className={styles.winRateHigh}>0.975 [0.955, 0.995]</td>
+                  <td>893.9 ms (0 quá giờ)</td>
+                  <td>56.4 nodes / 65.8 NPS</td>
+                </tr>
+                <tr className={styles.highlightRow}>
+                  <td><strong>Minimax d=2 vs Ruleset_A</strong></td>
+                  <td><code>controlled</code> (1000ms)</td>
+                  <td>200</td>
+                  <td>162</td>
+                  <td>36</td>
+                  <td>2</td>
+                  <td className={styles.winRateHigh}>0.988 [0.970, 1.000] (98.8%)</td>
+                  <td className={styles.winRateHigh}>0.900 [0.860, 0.940]</td>
+                  <td>870.0 ms (0 quá giờ)</td>
+                  <td>94.4 nodes / 116.4 NPS</td>
+                </tr>
+                <tr className={styles.highlightRow}>
+                  <td><strong>Minimax d=2 vs Heuristic_H6</strong></td>
+                  <td><code>controlled</code> (1000ms)</td>
+                  <td>200</td>
+                  <td>58</td>
+                  <td>139</td>
+                  <td>3</td>
+                  <td className={styles.winRateHigh}>0.951 [0.885, 1.000] (95.1%)</td>
+                  <td className={styles.winRateMid}>0.638 [0.575, 0.700]</td>
+                  <td>801.0 ms (0 quá giờ)</td>
+                  <td>171.7 nodes / 247.4 NPS</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+
+          {/* Subheading: Ablation Study */}
+          <div style={{ marginTop: '0.75rem', marginBottom: '-0.5rem' }}>
+            <h3 style={{ fontSize: '1rem', color: 'var(--gold-primary)', fontFamily: 'var(--font-display)', margin: 0 }}>
+              {lang === 'vi' ? '2. Khảo Sát Ablation Study — Độ Sâu & Độ Nhạy Ngân Sách Nút (160 Ván):' : '2. Ablation Study — Search Depth & Node Budget Sensitivity (160 Matches):'}
+            </h3>
+          </div>
+
+          {/* Table 10b: Ablation */}
+          <div className={styles.tableWrapper}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>{lang === 'vi' ? 'Cấu hình Ablation' : 'Ablation Setup'}</th>
+                  <th>{lang === 'vi' ? 'Đối thủ' : 'Opponent'}</th>
+                  <th>{lang === 'vi' ? 'Số ván' : 'Games'}</th>
+                  <th>{lang === 'vi' ? 'Thắng — Hòa — Thua' : 'W — D — L'}</th>
+                  <th>{lang === 'vi' ? 'Tỷ lệ thắng (Win Rate)' : 'Win Rate'}</th>
+                  <th>{lang === 'vi' ? 'Điểm số (Score)' : 'Score'}</th>
+                  <th>{lang === 'vi' ? 'Nút duyệt TB' : 'Avg Nodes'}</th>
+                  <th>{lang === 'vi' ? 'Độ trễ TB' : 'Avg Latency'}</th>
+                  <th>{lang === 'vi' ? 'Phân tích chiến thuật & Hiện tượng' : 'Tactical Analysis & Phenomenon'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Minimax d=1 (1-ply)</strong></td>
+                  <td>Ruleset_A</td>
+                  <td>40</td>
+                  <td>40 — 0 — 0</td>
+                  <td className={styles.winRateHigh}>1.000 (100.0%)</td>
+                  <td className={styles.winRateHigh}>1.000</td>
+                  <td>20.0</td>
+                  <td>1.05 ms</td>
+                  <td>{lang === 'vi' ? 'Đánh giá 1 tầng nhanh tức thì, không nhìn trước phản công' : 'Instant 1-ply evaluation, no lookahead for counters'}</td>
+                </tr>
+                <tr className={styles.highlightRow}>
+                  <td><strong>Minimax d=2 (2-ply)</strong></td>
+                  <td>Ruleset_A</td>
+                  <td>40</td>
+                  <td>40 — 0 — 0</td>
+                  <td className={styles.winRateHigh}>1.000 (100.0%)</td>
+                  <td className={styles.winRateHigh}>1.000</td>
+                  <td>1.362.4</td>
+                  <td>11.23 ms</td>
+                  <td>{lang === 'vi' ? 'Lường trước đòn phản công 2 tầng, tránh bẫy chiếu chết hiểm' : 'Foresees 2-ply counter-threats, avoids fatal check traps'}</td>
+                </tr>
+                <tr>
+                  <td>Ngân sách nút N = 500</td>
+                  <td>Ruleset_A</td>
+                  <td>20</td>
+                  <td>1 — 12 — 7</td>
+                  <td className={styles.winRateLow}>0.125 (12.5%)</td>
+                  <td className={styles.winRateLow}>0.350</td>
+                  <td>500.0</td>
+                  <td>4.89 ms</td>
+                  <td>{lang === 'vi' ? 'Cắt tỉa cụt giữa chừng tầng MIN, ngộ nhận thế cờ an toàn' : 'Prematurely truncated in MIN ply, false sense of safety'}</td>
+                </tr>
+                <tr style={{ background: 'rgba(239, 68, 68, 0.08)' }}>
+                  <td><strong>Ngân sách nút N = 1.000</strong></td>
+                  <td>Ruleset_A</td>
+                  <td>20</td>
+                  <td>0 — 12 — 8</td>
+                  <td className={styles.winRateLow} style={{ color: '#ef4444', fontWeight: 800 }}>0.000 (0.0%)</td>
+                  <td className={styles.winRateLow}>0.300</td>
+                  <td>1.000.0</td>
+                  <td>9.87 ms</td>
+                  <td><strong style={{ color: '#ef4444' }}>{lang === 'vi' ? 'Đỉnh điểm Horizon Effect: mù đòn phản công bắt Tư lệnh' : 'Peak Horizon Effect: blind to opponent counter-check'}</strong></td>
+                </tr>
+                <tr className={styles.highlightRow}>
+                  <td><strong>Ngân sách nút N = 2.000</strong></td>
+                  <td>Ruleset_A</td>
+                  <td>20</td>
+                  <td>8 — 9 — 3</td>
+                  <td className={styles.winRateHigh}>0.727 (72.7%)</td>
+                  <td className={styles.winRateMid}>0.625</td>
+                  <td>1.942.1</td>
+                  <td>19.54 ms</td>
+                  <td>{lang === 'vi' ? 'Vượt ngưỡng tới hạn N*, khôi phục năng lực đối kháng' : 'Crosses critical threshold N*, restores tactical defense'}</td>
+                </tr>
+                <tr className={styles.highlightRow}>
+                  <td><strong>Ngân sách nút N = 5.000</strong></td>
+                  <td>Ruleset_A</td>
+                  <td>20</td>
+                  <td>16 — 4 — 0</td>
+                  <td className={styles.winRateHigh}>1.000 (100.0%)</td>
+                  <td className={styles.winRateHigh}>0.900</td>
+                  <td>3.821.5</td>
+                  <td>48.72 ms</td>
+                  <td>{lang === 'vi' ? 'Đủ không gian tìm kiếm, duy trì toàn thắng tuyệt đối' : 'Sufficient search capacity, maintains 100% win rate'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Scientific Callout Box: Horizon Effect */}
+          <div className={styles.envCard} style={{ borderColor: 'rgba(239, 68, 68, 0.4)', background: 'rgba(30, 15, 20, 0.6)' }}>
+            <span className={styles.envBadge} style={{ color: '#ef4444' }}>⚠️</span>
+            <div>
+              <strong style={{ color: '#ef4444', marginRight: '0.5rem' }}>
+                {lang === 'vi' ? 'Phát hiện khoa học — Hiện tượng Chân trời (Horizon Effect):' : 'Key Scientific Finding — Horizon Effect:'}
+              </strong>
+              <span>
+                {lang === 'vi'
+                  ? 'Khi giới hạn ngân sách tìm kiếm dưới 1.000 nút, Minimax bị ngắt giữa chừng ở tầng MIN khiến tỷ lệ thắng sụp về 0.0%. Khi cấp ngân sách vượt ngưỡng tới hạn N* ≥ 2.000 nút (hoàn tất đánh giá đòn phản công của đối thủ), tỷ lệ thắng hồi phục mạnh mẽ lên 72.7% và đạt 100.0% tại 5.000 nút.'
+                  : 'When search budget is capped under 1,000 nodes, Minimax is prematurely truncated in the MIN ply, dropping win rate to 0.0%. When budget exceeds critical threshold N* ≥ 2,000 nodes (fully evaluating opponent counter-threats), win rate rebounds to 72.7% and reaches 100.0% at 5,000 nodes.'}
+              </span>
+            </div>
+          </div>
+
+          {/* Charts Grid 10: 8 Comprehensive Charts */}
+          <div className={styles.galleryGrid}>
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_01_minimax_vs_baselines_score_ci.png',
+                  lang === 'vi'
+                    ? 'Hình 4.14: Tỷ lệ điểm số Score và 95% Bootstrap CI của Minimax d=2 trước 3 baseline (1.200 ván)'
+                    : 'Fig 4.14: Minimax d=2 Score Ratio and 95% Bootstrap CI vs 3 Baselines (1,200 matches)'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_01_minimax_vs_baselines_score_ci.png"
+                  alt="Minimax Score vs Baselines"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Điểm số Score & 95% CI vs Baselines' : 'Score Ratio & 95% CI vs Baselines'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_02_wdl_comparison.png',
+                  lang === 'vi'
+                    ? 'Hình 4.15: Phân phối Thắng / Hòa / Thua qua 6 cặp đấu (Toàn thắng 100% ở default)'
+                    : 'Fig 4.15: Win / Draw / Loss Distribution Across 6 Matchups'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_02_wdl_comparison.png"
+                  alt="Minimax WDL Comparison"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Phân phối Thắng/Hòa/Thua qua 6 cặp đấu' : 'W/D/L Distribution across 6 Matchups'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_07_ablation_search_budget_curve.png',
+                  lang === 'vi'
+                    ? 'Hình 4.16: Đường cong độ nhạy ngân sách nút (500 -> 5000) & Hiện tượng Chân trời (Horizon Effect)'
+                    : 'Fig 4.16: Node Budget Sensitivity Curve (500 to 5000) & Horizon Effect'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_07_ablation_search_budget_curve.png"
+                  alt="Search Budget Curve"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Độ nhạy ngân sách nút & Horizon Effect' : 'Budget Sensitivity & Horizon Effect'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_06_ablation_depth_1_vs_2.png',
+                  lang === 'vi'
+                    ? 'Hình 4.17: Ablation độ sâu d=1 vs d=2 (Hiệu năng, số nút duyệt và chất lượng chiến thuật)'
+                    : 'Fig 4.17: Depth Ablation d=1 vs d=2 (Performance & Tactical Quality)'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_06_ablation_depth_1_vs_2.png"
+                  alt="Depth Ablation d=1 vs d=2"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Ablation độ sâu: d=1 vs d=2' : 'Depth Ablation: d=1 vs d=2'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_04_latency_and_budget_comparison.png',
+                  lang === 'vi'
+                    ? 'Hình 4.18: Độ trễ phản hồi thời gian thực và kiểm soát ngưỡng trần 1000 ms của Minimax'
+                    : 'Fig 4.18: Decision Latency and 1000 ms Time Budget Compliance'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_04_latency_and_budget_comparison.png"
+                  alt="Minimax Latency Comparison"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Độ trễ và kiểm soát trần thời gian 1000 ms' : 'Latency & 1000 ms Budget Compliance'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_03_nodes_visited_and_nps.png',
+                  lang === 'vi'
+                    ? 'Hình 4.19: Số nút duyệt trung bình và tốc độ duyệt nút (NPS) qua các cặp đối đầu'
+                    : 'Fig 4.19: Nodes Visited and NPS Across Matchup Pairs'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_03_nodes_visited_and_nps.png"
+                  alt="Nodes Visited and NPS"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Số nút duyệt trung bình & NPS' : 'Nodes Visited & NPS'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_05_red_vs_blue_advantage.png',
+                  lang === 'vi'
+                    ? 'Hình 4.20: Phân tích lợi thế đi trước Đỏ vs Xanh (Minimax khắc phục bất lợi khi cầm quân Xanh)'
+                    : 'Fig 4.20: First-Move Advantage Analysis (Red vs Blue)'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_05_red_vs_blue_advantage.png"
+                  alt="Red vs Blue Advantage"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Phân tích lợi thế đi trước (Đỏ vs Xanh)' : 'First-Move Advantage (Red vs Blue)'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
+
+            <div
+              className={styles.chartCard}
+              onClick={() =>
+                openZoom(
+                  '/assets/stats/exp10_fig_09_game_length_distribution.png',
+                  lang === 'vi'
+                    ? 'Hình 4.21: Phân phối độ dài ván đấu của tác tử Minimax d=2 (kết thúc ván quyết liệt)'
+                    : 'Fig 4.21: Game Length Distribution for Minimax d=2'
+                )
+              }
+            >
+              <div className={styles.chartImgWrapper}>
+                <img
+                  src="/assets/stats/exp10_fig_09_game_length_distribution.png"
+                  alt="Game Length Distribution"
+                  className={styles.chartImg}
+                />
+              </div>
+              <div className={styles.chartCaption}>
+                <span>{lang === 'vi' ? 'Phân phối độ dài số nước đi ván đấu' : 'Game Length Distribution'}</span>
+                <span className={styles.zoomHint}>{t.stats.btnZoom}</span>
+              </div>
+            </div>
           </div>
         </section>
       )}
