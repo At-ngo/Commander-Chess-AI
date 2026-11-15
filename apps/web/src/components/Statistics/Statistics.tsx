@@ -984,66 +984,66 @@ export const Statistics: React.FC<StatisticsProps> = ({ lang }) => {
                   <td><strong>Minimax d=1 (1-ply)</strong></td>
                   <td>Ruleset_A</td>
                   <td>40</td>
-                  <td>40 — 0 — 0</td>
+                  <td>28 — 12 — 0</td>
                   <td className={styles.winRateHigh}>1.000 (100.0%)</td>
                   <td className={styles.winRateHigh}>1.000</td>
-                  <td>20.0</td>
-                  <td>1.05 ms</td>
+                  <td>32.0</td>
+                  <td>430.5 ms</td>
                   <td>{lang === 'vi' ? 'Đánh giá 1 tầng nhanh tức thì, không nhìn trước phản công' : 'Instant 1-ply evaluation, no lookahead for counters'}</td>
                 </tr>
                 <tr className={styles.highlightRow}>
                   <td><strong>Minimax d=2 (2-ply)</strong></td>
                   <td>Ruleset_A</td>
                   <td>40</td>
-                  <td>40 — 0 — 0</td>
+                  <td>38 — 2 — 0</td>
                   <td className={styles.winRateHigh}>1.000 (100.0%)</td>
                   <td className={styles.winRateHigh}>1.000</td>
-                  <td>1.362.4</td>
-                  <td>11.23 ms</td>
+                  <td>1,346.4</td>
+                  <td>17,125.2 ms</td>
                   <td>{lang === 'vi' ? 'Lường trước đòn phản công 2 tầng, tránh bẫy chiếu chết hiểm' : 'Foresees 2-ply counter-threats, avoids fatal check traps'}</td>
                 </tr>
                 <tr>
                   <td>Ngân sách nút N = 500</td>
                   <td>Ruleset_A</td>
-                  <td>20</td>
-                  <td>1 — 12 — 7</td>
+                  <td>40</td>
+                  <td>1 — 32 — 7</td>
                   <td className={styles.winRateLow}>0.125 (12.5%)</td>
                   <td className={styles.winRateLow}>0.350</td>
-                  <td>500.0</td>
-                  <td>4.89 ms</td>
+                  <td>499.6</td>
+                  <td>2,183.1 ms</td>
                   <td>{lang === 'vi' ? 'Cắt tỉa cụt giữa chừng tầng MIN, ngộ nhận thế cờ an toàn' : 'Prematurely truncated in MIN ply, false sense of safety'}</td>
                 </tr>
                 <tr style={{ background: 'rgba(239, 68, 68, 0.08)' }}>
                   <td><strong>Ngân sách nút N = 1.000</strong></td>
                   <td>Ruleset_A</td>
-                  <td>20</td>
-                  <td>0 — 12 — 8</td>
+                  <td>40</td>
+                  <td>0 — 32 — 8</td>
                   <td className={styles.winRateLow} style={{ color: '#ef4444', fontWeight: 800 }}>0.000 (0.0%)</td>
                   <td className={styles.winRateLow}>0.300</td>
-                  <td>1.000.0</td>
-                  <td>9.87 ms</td>
+                  <td>967.4</td>
+                  <td>3,623.7 ms</td>
                   <td><strong style={{ color: '#ef4444' }}>{lang === 'vi' ? 'Đỉnh điểm Horizon Effect: mù đòn phản công bắt Tư lệnh' : 'Peak Horizon Effect: blind to opponent counter-check'}</strong></td>
                 </tr>
                 <tr className={styles.highlightRow}>
                   <td><strong>Ngân sách nút N = 2.000</strong></td>
                   <td>Ruleset_A</td>
-                  <td>20</td>
-                  <td>8 — 9 — 3</td>
+                  <td>40</td>
+                  <td>8 — 29 — 3</td>
                   <td className={styles.winRateHigh}>0.727 (72.7%)</td>
                   <td className={styles.winRateMid}>0.625</td>
-                  <td>1.942.1</td>
-                  <td>19.54 ms</td>
+                  <td>1,765.0</td>
+                  <td>6,676.6 ms</td>
                   <td>{lang === 'vi' ? 'Vượt ngưỡng tới hạn N*, khôi phục năng lực đối kháng' : 'Crosses critical threshold N*, restores tactical defense'}</td>
                 </tr>
                 <tr className={styles.highlightRow}>
                   <td><strong>Ngân sách nút N = 5.000</strong></td>
                   <td>Ruleset_A</td>
-                  <td>20</td>
-                  <td>16 — 4 — 0</td>
+                  <td>40</td>
+                  <td>29 — 11 — 0</td>
                   <td className={styles.winRateHigh}>1.000 (100.0%)</td>
                   <td className={styles.winRateHigh}>0.900</td>
-                  <td>3.821.5</td>
-                  <td>48.72 ms</td>
+                  <td>4,125.2</td>
+                  <td>16,402.1 ms</td>
                   <td>{lang === 'vi' ? 'Đủ không gian tìm kiếm, duy trì toàn thắng tuyệt đối' : 'Sufficient search capacity, maintains 100% win rate'}</td>
                 </tr>
               </tbody>
