@@ -18,7 +18,7 @@ _BUILTIN_CANDIDATES: dict[str, tuple[str, str]] = {
     "rules": ("agents.rule_based_agent", "RuleBasedAgent"),
     "heuristic": ("agents.heuristic_agent", "HeuristicAgent"),
     "minimax": ("agents.minimax_agent", "MinimaxAgent"),
-    "alphabeta": ("agents.alphabeta_agent", "AlphaBetaAgent"),
+    "alphabeta": ("agents.alpha_beta_agent", "AlphaBetaAgent"),
     "mcts": ("agents.mcts_agent", "MCTSAgent"),
 }
 

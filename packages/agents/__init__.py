@@ -40,10 +40,14 @@ else:
 
 try:
     from .minimax_agent import DEFAULT_MINIMAX_EVALUATOR_CFG, MinimaxAgent
+    from .alpha_beta_agent import AlphaBetaAgent
     from .tree_exporter import (
         export_minimax_tree_json,
         export_minimax_tree_to_dict,
         plot_minimax_tree_from_json,
+        export_alphabeta_tree_json,
+        export_alphabeta_tree_to_dict,
+        plot_alphabeta_tree_from_json,
     )
 except ImportError:
     pass
@@ -51,7 +55,11 @@ else:
     __all__.extend([
         "DEFAULT_MINIMAX_EVALUATOR_CFG",
         "MinimaxAgent",
+        "AlphaBetaAgent",
         "export_minimax_tree_json",
         "export_minimax_tree_to_dict",
         "plot_minimax_tree_from_json",
+        "export_alphabeta_tree_json",
+        "export_alphabeta_tree_to_dict",
+        "plot_alphabeta_tree_from_json",
     ])
