@@ -271,6 +271,8 @@ export const App: React.FC = () => {
         return t.game.agentRandom;
       case 'MINIMAX_AGENT':
         return t.game.agentMinimax;
+      case 'ALPHA_BETA_AGENT':
+        return t.game.agentAlphaBeta;
       default:
         return agentId;
     }
@@ -1449,6 +1451,7 @@ export const App: React.FC = () => {
                       <option value="HEURISTIC_AGENT">{t.game.agentHeuristic}</option>
                       <option value="RANDOM_AGENT">{t.game.agentRandom}</option>
                       <option value="MINIMAX_AGENT">{t.game.agentMinimax}</option>
+                      <option value="ALPHA_BETA_AGENT">{t.game.agentAlphaBeta}</option>
                     </select>
                     <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                       <span>⏱️</span>
@@ -1478,6 +1481,7 @@ export const App: React.FC = () => {
                           <option value="HEURISTIC_AGENT">{t.game.agentHeuristic}</option>
                           <option value="RANDOM_AGENT">{t.game.agentRandom}</option>
                           <option value="MINIMAX_AGENT">{t.game.agentMinimax}</option>
+                          <option value="ALPHA_BETA_AGENT">{t.game.agentAlphaBeta}</option>
                         </select>
                       </div>
                       <div className={styles.agentCol}>
@@ -1497,6 +1501,7 @@ export const App: React.FC = () => {
                           <option value="RULE_BASED_AGENT">{t.game.agentRuleBased}</option>
                           <option value="RANDOM_AGENT">{t.game.agentRandom}</option>
                           <option value="MINIMAX_AGENT">{t.game.agentMinimax}</option>
+                          <option value="ALPHA_BETA_AGENT">{t.game.agentAlphaBeta}</option>
                         </select>
                       </div>
                       <div className={styles.agentCol} style={{ marginTop: '0.2rem' }}>

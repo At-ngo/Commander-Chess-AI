@@ -2125,8 +2125,8 @@ export function selectSmartAiAction(
     return safeActions[Math.floor(Math.random() * safeActions.length)];
   }
 
-  // 2. HEURISTIC AGENT (CCHEF H6 Evaluator): Multi-feature tactical scoring
-  if (normAgent.includes('HEURISTIC')) {
+  // 2. HEURISTIC AGENT / MINIMAX / ALPHA_BETA: Multi-feature tactical scoring
+  if (normAgent.includes('HEURISTIC') || normAgent.includes('MINIMAX') || normAgent.includes('ALPHA_BETA')) {
     let bestAction = safeActions[0];
     let maxEval = -Infinity;
 

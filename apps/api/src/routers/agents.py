@@ -58,6 +58,16 @@ REGISTERED_AGENTS: Dict[str, AgentDTO] = {
         supported_sides=[Side.RED, Side.BLUE],
         config_schema={"depth": {"type": "integer", "default": 2}},
     ),
+    "ALPHA_BETA_AGENT": AgentDTO(
+        agent_id="ALPHA_BETA_AGENT",
+        name="ALPHA-BETA AGENT",
+        algorithm="ALPHA_BETA",
+        version="1.0.0",
+        description="Tìm kiếm đối kháng Alpha-Beta Pruning (depth=2, move ordering) kết hợp hàm đánh giá H6 tối ưu.",
+        status="READY",
+        supported_sides=[Side.RED, Side.BLUE],
+        config_schema={"depth": {"type": "integer", "default": 2}, "move_ordering": {"type": "boolean", "default": True}},
+    ),
     # Backwards-compatible aliases for legacy API clients and existing unit tests
     "random_agent": AgentDTO(
         agent_id="random_agent",
@@ -89,6 +99,16 @@ REGISTERED_AGENTS: Dict[str, AgentDTO] = {
         supported_sides=[Side.RED, Side.BLUE],
         config_schema={"max_depth": {"type": "integer", "default": 2}},
     ),
+    "alphabeta_agent": AgentDTO(
+        agent_id="alphabeta_agent",
+        name="Alpha-Beta Pruning Agent",
+        algorithm="ALPHA_BETA",
+        version="1.0.0",
+        description="Tìm kiếm đối kháng Alpha-Beta Pruning (depth=2, move ordering) kết hợp hàm đánh giá H6 tối ưu.",
+        status="READY",
+        supported_sides=[Side.RED, Side.BLUE],
+        config_schema={"depth": {"type": "integer", "default": 2}},
+    ),
 }
 
 
@@ -96,7 +116,7 @@ REGISTERED_AGENTS: Dict[str, AgentDTO] = {
 def list_agents() -> AgentListResponse:
     """Liệt kê danh sách tất cả các tác tử AI được đăng ký trong hệ thống"""
     # Return unique agents preferring canonical uppercase IDs
-    canonical_keys = ["RULE_BASED_AGENT", "HEURISTIC_AGENT", "RANDOM_AGENT", "MINIMAX_AGENT", "random_agent"]
+    canonical_keys = ["RULE_BASED_AGENT", "HEURISTIC_AGENT", "RANDOM_AGENT", "MINIMAX_AGENT", "ALPHA_BETA_AGENT", "random_agent"]
     seen = set()
     result = []
     for k in list(REGISTERED_AGENTS.keys()):

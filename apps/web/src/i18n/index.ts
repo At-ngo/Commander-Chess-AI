@@ -96,6 +96,7 @@ export interface Translations {
     agentHeuristic: string;
     agentRandom: string;
     agentMinimax: string;
+    agentAlphaBeta: string;
     btnStartMatch: string;
     btnPauseMatch: string;
     btnResumeMatch: string;
@@ -290,6 +291,7 @@ export const translations: Record<Language, Translations> = {
       agentHeuristic: 'HEURISTIC_AGENT',
       agentRandom: 'RANDOM AGENT',
       agentMinimax: 'MINIMAX AGENT (depth=2)',
+      agentAlphaBeta: 'ALPHA-BETA AGENT (depth=2, move ordering)',
       btnStartMatch: '▶ Bắt đầu trận',
       btnPauseMatch: '⏸ Tạm dừng',
       btnResumeMatch: '▶ Tiếp tục',
@@ -494,6 +496,7 @@ export const translations: Record<Language, Translations> = {
       agentHeuristic: 'HEURISTIC_AGENT',
       agentRandom: 'RANDOM AGENT',
       agentMinimax: 'MINIMAX AGENT (depth=2)',
+      agentAlphaBeta: 'ALPHA-BETA AGENT (depth=2, move ordering)',
       btnStartMatch: '▶ Start Match',
       btnPauseMatch: '⏸ Pause',
       btnResumeMatch: '▶ Resume',

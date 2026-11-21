@@ -954,6 +954,32 @@ def select_agent_action_with_telemetry(
                     "tie_breaking": "random",
                 },
             )
+        elif "ALPHA_BETA" in norm_id or "ALPHABETA" in norm_id:
+            from agents import AlphaBetaAgent
+            agent = AlphaBetaAgent(
+                name="ALPHA-BETA AGENT",
+                config={
+                    "depth": 2,
+                    "max_nodes": 5000,
+                    "candidate_k": 20,
+                    "move_ordering": True,
+                    "time_budget_ms": time_budget_ms if time_budget_ms is not None else 60000,
+                    "evaluator_config": {
+                        "variant": "H6",
+                        "weights": {
+                            "M": 0.30,
+                            "K": 0.30,
+                            "Q": 0.10,
+                            "P": 0.10,
+                            "C": 0.05,
+                            "D": 0.05,
+                            "T": 0.10,
+                        },
+                        "enable_compound_lookahead": True,
+                        "enable_co_synergy": True,
+                    },
+                },
+            )
         elif "MINIMAX" in norm_id:
             from agents import MinimaxAgent
             agent = MinimaxAgent(

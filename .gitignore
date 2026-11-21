@@ -63,6 +63,7 @@ ehthumbs.db
 
 # Research outputs
 research/results/*
+!research/results/*.xlsx
 research/runs/*
 !research/runs/README.md
 research/checkpoints/*
@@ -103,3 +104,9 @@ docs/OPEN_QUESTIONS.md
 docs/RESOLVED_QUESTIONS.md
 docs/BUG_REPORT.md
 docs/CHANGE_REQUESTS.md
+docs/PROGRESS_SLIDE_GUIDE.md
+docs/[Pp]rogress_slide_guide*
+
+# Local reports and slides (not pushed to git)
+BCGK/
+
